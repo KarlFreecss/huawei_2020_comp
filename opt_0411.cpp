@@ -6,6 +6,7 @@ TODO:
     4. enumerate start depends on head!
 
 */
+//#define _CRT_SECURE_NO_WARNINGS
 #include <cstdio>
 #include <iostream>
 #include <vector>
@@ -20,7 +21,7 @@ TODO:
 
 #include <ctime>
 
-#define DEBUG
+//#define DEBUG
 
 using namespace std;
 
@@ -28,29 +29,29 @@ const int MIN_LENGTH = 3;
 const int MAX_LENGTH = 7;
 const int THREAD_NUM = 4;
 
-typedef int uint_std;
+//typedef int int_std;
 typedef int int_std;
 
 mutex mtx;
 
-unordered_map<uint_std, uint_std> id2index, index2id;
-unordered_map<uint_std, vector<uint_std>> RawGraph;
+unordered_map<int_std, int_std> id2index, index2id;
+unordered_map<int_std, vector<int_std>> RawGraph;
 
-vector<vector<uint_std>> graph;
-vector<vector<uint_std>> rev_graph;
-vector<vector<vector<uint_std>>> ans_pool[8];
+vector<vector<int_std>> graph;
+vector<vector<int_std>> rev_graph;
+vector<vector<vector<int_std>>> ans_pool[8];
 vector<string> id_str;
-vector<uint_std> undo;
+vector<int_std> undo;
 
-vector<uint_std> used_pool[THREAD_NUM];
-unordered_map<int, vector<pair<int, int>>> jump_pool[THREAD_NUM];
+vector<int_std> used_pool[THREAD_NUM];
+vector<vector<pair<int, int>>> jump_pool[THREAD_NUM];
 
 inline
-void quick_jump(uint_std head, 
-                uint_std v,
-                unordered_map<int, vector<pair<int, int>>> & jump,
-                const vector<uint_std> & node_list,
-                const vector<uint_std> & used){
+void quick_jump(int_std head, 
+                int_std v,
+                vector<vector<pair<int, int>>> & jump,
+                const vector<int_std> & node_list,
+                const vector<int_std> & used){
     const int len = node_list.size() + 2;
     auto & ans = ans_pool[len][head];
     const auto & jp = jump[v];
@@ -64,38 +65,39 @@ void quick_jump(uint_std head,
     }
 }
 
-void search(uint_std head,
-            unordered_map<int, vector<pair<int, int>>> & jump,
-            vector<uint_std> & used){
-    vector<uint_std> node_list(MAX_LENGTH);
+void search(int_std head,
+            vector<vector<pair<int, int>>> & jump,
+            const vector<int_std> & jump_update_flag,
+            vector<int_std> & used){
+    vector<int_std> node_list(MAX_LENGTH);
     node_list.clear();
     node_list.push_back(head);
-    if (jump.find(head) != jump.end()) quick_jump(head, head, jump, node_list, used);
+    if (jump_update_flag[head] == head and jump[head].size() != 0) quick_jump(head, head, jump, node_list, used);
     used[head]  = 1;
     for (const auto u : graph[head]) {
         if (u < head or used[u]) continue;
         node_list.push_back(u);
         used[u] = 1;
         //quick_jump(head, u, jump, node_list, used);
-        if (jump.find(u) != jump.end()) quick_jump(head, u, jump, node_list, used);
+        if (jump_update_flag[u] == head and jump[u].size() != 0) quick_jump(head, u, jump, node_list, used);
         for (const auto v : graph[u]) {
             if (v < head or used[v]) continue;
             node_list.push_back(v);
             used[v] = 1;
             //quick_jump(head, v, jump, node_list, used);
-            if (jump.find(v) != jump.end()) quick_jump(head, v, jump, node_list, used);
+            if (jump_update_flag[v] == head and jump[v].size() != 0) quick_jump(head, v, jump, node_list, used);
             for (const auto k : graph[v]) {
                 if (k < head or used[k]) continue;
                 node_list.push_back(k);
                 used[k] = 1;
                 //quick_jump(head, k, jump, node_list, used);
-                if (jump.find(k) != jump.end()) quick_jump(head, k, jump, node_list, used);
+                if (jump_update_flag[k] == head and jump[k].size() != 0) quick_jump(head, k, jump, node_list, used);
                 for (const auto l : graph[k]) {
                     if (l < head or used[l]) continue;
                     node_list.push_back(l);
                     used[l] = 1;
                     //quick_jump(head, l, jump, node_list, used);
-                    if (jump.find(l) != jump.end()) quick_jump(head, l, jump, node_list, used);
+                    if (jump_update_flag[l] == head and jump[l].size() != 0) quick_jump(head, l, jump, node_list, used);
                     used[l] = 0;
                     node_list.pop_back();
                 }
@@ -111,10 +113,11 @@ void search(uint_std head,
     used[head] = 0;
 }
 
-void init_jump(unordered_map<int, vector<pair<int, int>>> & jump, uint_std head, vector<uint_std> & init_node){
-    //jump = unordered_map<uint_std, vector<pair<int, int>>();
-    jump.clear();
-    jump.rehash(1000);
+void init_jump(int_std head, 
+            vector<vector<pair<int, int>>> & jump, 
+            vector<int_std> & jump_update_flag, 
+            vector<int_std> & init_node){
+    //jump = unordered_map<int_std, vector<pair<int, int>>();
     init_node.clear();
     for (const auto & u : rev_graph[head]){
         if (u <= head) continue;
@@ -123,10 +126,12 @@ void init_jump(unordered_map<int, vector<pair<int, int>>> & jump, uint_std head,
             for (const auto & mid : rev_graph[v]){
                 //if (u > head and v > head and mid >= head and u != v){
                 if (mid >= head and mid != u){
-                    if (jump.find(mid) == jump.end()){
-                        jump[mid] = vector<pair<int, int>>();
+                    //if (jump.find(mid) == jump.end()){
+                    if (jump_update_flag[mid] != head){
+                        jump_update_flag[mid] = head;
+                        jump[mid].clear();
                         init_node.push_back(mid);
-                        //jump[u][i] = vector<uint_std>(30);
+                        //jump[u][i] = vector<int_std>(30);
                         //jump[u][i].clear();
                     }
                     jump[mid].push_back(make_pair(v, u));
@@ -139,14 +144,14 @@ void init_jump(unordered_map<int, vector<pair<int, int>>> & jump, uint_std head,
     }
 }
 
-void BFS(uint_std head, vector<uint_std> & visit, vector<uint_std> & dist){
+void BFS(int_std head, vector<int_std> & visit, vector<int_std> & dist){
     visit[head] = head;
     dist[head] = 0;
-    queue<uint_std> que;
+    queue<int_std> que;
     que.push(head);
 
     while (!que.empty()){
-        uint_std x = que.front();
+        int_std x = que.front();
         que.pop();
 
         for (const auto & u : rev_graph[x]){
@@ -162,10 +167,15 @@ void BFS(uint_std head, vector<uint_std> & visit, vector<uint_std> & dist){
     
 }
 
-void run_job(uint_std thread_id, uint_std graph_size){
-    vector<uint_std> init_node;
-    //vector<uint_std> visit(graph_size);
-    //vector<uint_std> dist(graph_size);
+void run_job(int_std thread_id, int_std graph_size){
+    vector<int_std> init_node;
+    vector<int_std> jump_update_flag(graph_size, -1);
+    jump_pool[thread_id].resize(graph_size);
+    //for (int i = 0; i < graph_size; ++i){
+    //    jump_pool[thread_id][i].resize(16);
+    //}
+    //vector<int_std> visit(graph_size);
+    //vector<int_std> dist(graph_size);
     for (int i = thread_id; i < graph_size; i+=THREAD_NUM){
         //int need_to_do = false;
         //mtx.lock();
@@ -176,8 +186,8 @@ void run_job(uint_std thread_id, uint_std graph_size){
         //mtx.unlock();
         //if (need_to_do){
         if (i % THREAD_NUM == thread_id){
-            init_jump(jump_pool[thread_id], i, init_node);
-            search(i, jump_pool[thread_id], used_pool[thread_id]);
+            init_jump(i, jump_pool[thread_id], jump_update_flag, init_node);
+            search(i, jump_pool[thread_id], jump_update_flag, used_pool[thread_id]);
         }
     }
 }
@@ -189,12 +199,12 @@ char out_buff[MAX_BUFF_SIZE];
 char in_buff[MAX_BUFF_SIZE];
 
 const int MAX_DATA_SIZE = 560000;
-vector<uint_std> A(MAX_DATA_SIZE), B(MAX_DATA_SIZE), C(MAX_DATA_SIZE);
+vector<int_std> A(MAX_DATA_SIZE), B(MAX_DATA_SIZE), C(MAX_DATA_SIZE);
 
 inline
-uint_std get_num(char buff[], uint_std & used){
+int_std get_num(char buff[], int_std & used){
     while (buff[used] < '0' or buff[used] > '9') ++used;
-    uint_std ret = buff[used++] - '0';
+    int_std ret = buff[used++] - '0';
     while (buff[used] >= '0' && buff[used] <= '9') {
         ret = ret * 10 + buff[used++] - '0';
     }
@@ -204,11 +214,11 @@ uint_std get_num(char buff[], uint_std & used){
 void quick_input(char * file_name){
     FILE * fin = fopen(file_name, "r");
     A.clear(); B.clear(); C.clear();
-    uint_std is_finished = false;
-    uint_std used = 0;
-    uint_std left_data_size = 0;
+    int_std is_finished = false;
+    int_std used = 0;
+    int_std left_data_size = 0;
     while (false == is_finished){
-        uint_std read_size = fread(in_buff + left_data_size, 1, SAFE_BUFF_SIZE, fin);
+        int_std read_size = fread(in_buff + left_data_size, 1, SAFE_BUFF_SIZE, fin);
         left_data_size += read_size;
         if (read_size < SAFE_BUFF_SIZE) is_finished = true;
         while (left_data_size - used > LEAST_DATA_LEFT){
@@ -231,7 +241,7 @@ void quick_input(char * file_name){
 void normal_input(char * file_name){
     FILE * fin = fopen(file_name, "r");
     A.clear(); B.clear(); C.clear();
-    uint_std a, b, c;
+    int_std a, b, c;
     while (fscanf(fin, "%u,%u,%u", &a, &b, &c) == 3){
         A.push_back(a); 
         B.push_back(b); 
@@ -243,6 +253,7 @@ void normal_input(char * file_name){
 int main(){
     auto beg_t = clock();
     #ifdef DEBUG
+	//char file_name[] = "D:/downloads/test_data.txt";
     char file_name[] = "/mnt/d/downloads/test_data.txt";
     //char file_name[] = "test_data.txt";
     #else
@@ -255,13 +266,13 @@ int main(){
     //cout << A.size() << endl;
 
     // Input
-    unordered_map<uint_std, int_std> ind;
+    unordered_map<int_std, int_std> ind;
     //while (fscanf(fin, "%u,%u,%u", &a, &b, &c) == 3){
     for (int i = 0; i < A.size(); ++i){
-        uint_std a = A[i], b = B[i], c = C[i];
+        int_std a = A[i], b = B[i], c = C[i];
         
         if (RawGraph.find(a) == RawGraph.end()){
-            RawGraph[a] = vector<uint_std> ();
+            RawGraph[a] = vector<int_std> ();
         }
         RawGraph[a].push_back(b);
         ind[b] = 1;
@@ -269,8 +280,8 @@ int main(){
     //exit(0);
 
     // Rebuild Graph, and remove v which d_out(v) == 0 
-    uint_std count = 0;
-    vector<uint_std> ids;
+    int_std count = 0;
+    vector<int_std> ids;
     for (const auto &d : RawGraph) ids.push_back(d.first);
     sort(ids.begin(), ids.end());
     id_str.resize(ids.size());
@@ -287,10 +298,10 @@ int main(){
     for (int i = 0; i < THREAD_NUM; ++i){
         used_pool[i].resize(graph_size);
     }
-    for (uint_std i = 0; i < graph_size; ++i){
+    for (int_std i = 0; i < graph_size; ++i){
         const auto id = index2id[i];
         const auto & rg = RawGraph[id];
-        graph[i] = vector<uint_std> ();
+        graph[i] = vector<int_std> ();
         if (ind.find(id) == ind.end()){
             continue;
         }
@@ -304,7 +315,7 @@ int main(){
         undo[i] = true;
         sort(graph[i].begin(), graph[i].end());
     }
-    for (uint_std i = 0; i < graph_size; ++i){
+    for (int_std i = 0; i < graph_size; ++i){
         sort(rev_graph[i].begin(), rev_graph[i].end());
     }
 
@@ -313,7 +324,7 @@ int main(){
     }
     //exit(0);
 
-    //for (uint_std i = 0; i < graph_size; ++i){
+    //for (int_std i = 0; i < graph_size; ++i){
     //    init_jump(jump_pool[0], i);
     //    search(i, jump_pool[0], used_pool[0]);
     //    #ifdef DEBUG
@@ -336,7 +347,7 @@ int main(){
     #else
         FILE * fout = fopen("/projects/student/result.txt", "w");
     #endif
-    uint_std total_ans = 0;
+    int_std total_ans = 0;
     for (int len = 3; len <= MAX_LENGTH; ++len){
         for (int i = 0; i < graph_size; ++i){
             total_ans += ans_pool[len][i].size();
@@ -352,7 +363,7 @@ int main(){
         const auto & ans = ans_pool[len];
         for (int i = 0; i < graph_size; ++i){
             for (const auto& path: ans[i]){
-                //const vector<uint_std> & path = d;
+                //const vector<int_std> & path = d;
                 //fprintf(fout, "%s", id_str[path[0]]);
                 const string & str = id_str[path[0]];
                 strcpy(out_buff + buff_used, str.c_str());
