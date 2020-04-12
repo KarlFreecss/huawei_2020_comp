@@ -7,8 +7,9 @@ TODO:
     5. merge single path
     6. using topo delete useless node
     7. add tarjan again
+    8. ans_pool just record ans index
 */
-//#define _CRT_SECURE_NO_WARNINGS
+#define _CRT_SECURE_NO_WARNINGS
 #include <cstdio>
 #include <iostream>
 #include <vector>
@@ -23,13 +24,15 @@ TODO:
 
 #include <ctime>
 
-#define DEBUG
+//#define DEBUG
 
 using namespace std;
 
 const int MIN_LENGTH = 3;
 const int MAX_LENGTH = 7;
 const int THREAD_NUM = 4;
+const int MAX_ANS_LEN = 3000000 * 3;
+const int MAX_ID_NUM = 280000 * 2;
 
 //typedef int int_std;
 typedef int int_std;
@@ -39,30 +42,64 @@ mutex mtx;
 unordered_map<int_std, int_std> id2index, index2id;
 unordered_map<int_std, vector<int_std>> RawGraph;
 
-vector<vector<int_std>> graph;
+vector<vector<int_std>> graph, new_graph;
 vector<vector<int_std>> rev_graph;
-vector<vector<vector<int_std>>> ans_pool[8];
+vector<vector<int_std>> ans_pool[8];
+vector<int_std> handle_thread_id;
+vector<int_std> real_ans[THREAD_NUM];
 vector<string> id_str;
 vector<int_std> undo;
 
 vector<int_std> used_pool[THREAD_NUM];
 vector<vector<pair<int, int>>> jump_pool[THREAD_NUM];
 
+vector<int_std> DFN, LOW, visit, stack, group_size, color;
+int tot, t_index;
+void tarjan(int_std x, int dep){
+    DFN[x] = LOW[x] = ++tot;
+    stack[++t_index] = x;
+    visit[x] = 1;
+    for (const auto& v: graph[x]){
+        if (!DFN[v]){
+            tarjan(v, dep + 1);
+            LOW[x] = min(LOW[x], LOW[v]);
+        } else if (visit[v]){
+            LOW[x] = min(LOW[x], DFN[v]);
+        }
+    }
+    if (LOW[x] == DFN[x]){
+        group_size[x] = 0;
+        do {
+            color[stack[t_index]] = x;
+            visit[stack[t_index]] = 0;
+            group_size[x]++;
+            t_index--;
+        } while(x != stack[t_index+1]);
+    }
+}
+
 inline
 void quick_jump(int_std head, 
                 int_std v,
                 vector<vector<pair<int, int>>> & jump,
                 const vector<int_std> & node_list,
-                const vector<int_std> & used){
+                const vector<int_std> & used,
+                int_std thread_id){
     const int len = node_list.size() + 2;
     auto & ans = ans_pool[len][head];
     const auto & jp = jump[v];
     for (const auto & mid : jp){
         if (used[mid.first] == 0 and used[mid.second] == 0 and mid.first >= head and mid.second >= head){
-            auto tmp = node_list;
-            tmp.push_back(mid.first);
-            tmp.push_back(mid.second);
-            ans.push_back(tmp);
+            //auto tmp = node_list;
+            //tmp.push_back(mid.first);
+            //tmp.push_back(mid.second);
+            //ans.push_back(tmp);
+            ans.push_back(real_ans[thread_id].size());
+            for (const auto & u : node_list){
+                real_ans[thread_id].push_back(u);
+            }
+            real_ans[thread_id].push_back(mid.first);
+            real_ans[thread_id].push_back(mid.second);
         }
     }
 }
@@ -70,36 +107,45 @@ void quick_jump(int_std head,
 void search(int_std head,
             vector<vector<pair<int, int>>> & jump,
             const vector<int_std> & jump_update_flag,
-            vector<int_std> & used){
+            vector<int_std> & used,
+            int_std thread_id){
     vector<int_std> node_list(MAX_LENGTH);
     node_list.clear();
     node_list.push_back(head);
-    if (jump_update_flag[head] == head and jump[head].size() != 0) quick_jump(head, head, jump, node_list, used);
+    if (jump_update_flag[head] == head and jump[head].size() != 0) quick_jump(head, head, jump, node_list, used, thread_id);
     used[head]  = 1;
-    for (const auto u : graph[head]) {
+    auto itr_u = lower_bound(graph[head].begin(), graph[head].end(), head);
+    for (;itr_u != graph[head].end(); ++itr_u){
+        const auto u = *itr_u;
         if (u < head or used[u]) continue;
         node_list.push_back(u);
         used[u] = 1;
         //quick_jump(head, u, jump, node_list, used);
-        if (jump_update_flag[u] == head and jump[u].size() != 0) quick_jump(head, u, jump, node_list, used);
-        for (const auto v : graph[u]) {
+        if (jump_update_flag[u] == head and jump[u].size() != 0) quick_jump(head, u, jump, node_list, used, thread_id);
+        auto itr_v = lower_bound(graph[u].begin(), graph[u].end(), head);
+        for (;itr_v != graph[u].end(); ++itr_v){
+            const auto v = *itr_v;
             if (v < head or used[v]) continue;
             node_list.push_back(v);
             used[v] = 1;
             //quick_jump(head, v, jump, node_list, used);
-            if (jump_update_flag[v] == head and jump[v].size() != 0) quick_jump(head, v, jump, node_list, used);
-            for (const auto k : graph[v]) {
+            if (jump_update_flag[v] == head and jump[v].size() != 0) quick_jump(head, v, jump, node_list, used, thread_id);
+            auto itr_k = lower_bound(graph[v].begin(), graph[v].end(), head);
+            for (;itr_k != graph[v].end(); ++itr_k){
+                const auto k = *itr_k;
                 if (k < head or used[k]) continue;
                 node_list.push_back(k);
                 used[k] = 1;
                 //quick_jump(head, k, jump, node_list, used);
-                if (jump_update_flag[k] == head and jump[k].size() != 0) quick_jump(head, k, jump, node_list, used);
-                for (const auto l : graph[k]) {
+                if (jump_update_flag[k] == head and jump[k].size() != 0) quick_jump(head, k, jump, node_list, used, thread_id);
+                auto itr_l = lower_bound(graph[k].begin(), graph[k].end(), head);
+                for (;itr_l != graph[k].end(); ++itr_l){
+                    const auto l = *itr_l;
                     if (l < head or used[l]) continue;
                     node_list.push_back(l);
                     used[l] = 1;
                     //quick_jump(head, l, jump, node_list, used);
-                    if (jump_update_flag[l] == head and jump[l].size() != 0) quick_jump(head, l, jump, node_list, used);
+                    if (jump_update_flag[l] == head and jump[l].size() != 0) quick_jump(head, l, jump, node_list, used, thread_id);
                     used[l] = 0;
                     node_list.pop_back();
                 }
@@ -189,8 +235,10 @@ void run_job(int_std thread_id, int_std graph_size){
         //if (need_to_do){
         if (i % THREAD_NUM == thread_id){
             init_jump(i, jump_pool[thread_id], jump_update_flag, init_node);
-            search(i, jump_pool[thread_id], jump_update_flag, used_pool[thread_id]);
+            handle_thread_id[i] = thread_id;
+            search(i, jump_pool[thread_id], jump_update_flag, used_pool[thread_id], thread_id);
         }
+        //cout << i << ' ' << real_ans[thread_id].size() << endl;
     }
 }
 
@@ -253,8 +301,8 @@ void normal_input(char * file_name){
 }
 
 int main(){
-    auto beg_t = clock();
     #ifdef DEBUG
+    //auto beg_t = clock();
 	//char file_name[] = "D:/downloads/test_data.txt";
     char file_name[] = "/mnt/d/downloads/test_data.txt";
     //char file_name[] = "test_data.txt";
@@ -268,7 +316,8 @@ int main(){
     //cout << A.size() << endl;
 
     // Input
-    unordered_map<int_std, int_std> ind;
+    RawGraph.reserve(MAX_DATA_SIZE);
+    RawGraph.rehash(MAX_DATA_SIZE);
     //while (fscanf(fin, "%u,%u,%u", &a, &b, &c) == 3){
     for (int i = 0; i < A.size(); ++i){
         int_std a = A[i], b = B[i], c = C[i];
@@ -277,7 +326,6 @@ int main(){
             RawGraph[a] = vector<int_std> ();
         }
         RawGraph[a].push_back(b);
-        ind[b] = 1;
     }
     //exit(0);
 
@@ -287,6 +335,10 @@ int main(){
     for (const auto &d : RawGraph) ids.push_back(d.first);
     sort(ids.begin(), ids.end());
     id_str.resize(ids.size());
+    id2index.reserve(MAX_ID_NUM);
+    id2index.rehash(MAX_ID_NUM);
+    index2id.reserve(MAX_ID_NUM);
+    index2id.rehash(MAX_ID_NUM);
     for (const auto a : ids){
         index2id[count] = a;
         id_str[count] = to_string(a);
@@ -298,15 +350,13 @@ int main(){
     rev_graph.resize(graph_size);
     undo.resize(graph_size);
     for (int i = 0; i < THREAD_NUM; ++i){
+        real_ans[i].reserve(MAX_ANS_LEN);
         used_pool[i].resize(graph_size);
     }
     for (int_std i = 0; i < graph_size; ++i){
         const auto id = index2id[i];
         const auto & rg = RawGraph[id];
         graph[i] = vector<int_std> ();
-        if (ind.find(id) == ind.end()){
-            continue;
-        }
         for (const auto & v : rg){
             if (id2index.find(v) == id2index.end()){
                 continue;
@@ -333,7 +383,50 @@ int main(){
     //    //printf("d : %d; ans size : %u; edge size: %u\n", i, total_ans, graph[i].size());
     //    #endif
     //}
-    //cout << double(clock() - beg_t)/CLOCKS_PER_SEC << endl;
+    LOW = vector<int_std> (graph_size, 0);
+    DFN = vector<int_std> (graph_size, 0);
+    visit = vector<int_std> (graph_size, 0);
+    stack = vector<int_std> (graph_size, 0);
+    group_size = vector<int_std> (graph_size, 0);
+    color = vector<int_std> (graph_size, 0);
+    handle_thread_id = vector<int_std> (graph_size, 0);
+    t_index = 0;
+    tot = 0;
+    for (int_std i = 0; i < graph_size; ++i){
+        if (!DFN[i]){
+            tarjan(i, 0);
+        }
+    }
+
+    new_graph.resize(graph.size());
+    vector<int_std> in(graph_size, 0), outd(graph_size, 0);
+    for (int_std i = 0; i < graph_size; ++i){
+        const auto & g = graph[i];
+        new_graph[i].clear();
+        if (group_size[color[i]] < 3){
+            continue;
+        }
+        new_graph[i].resize(graph[i].size());
+        new_graph[i].clear();
+        for (const auto & v : g){
+            if (color[v] == color[i]){
+                new_graph[i].push_back(v);
+                in[v]++;
+                outd[i]++;
+            }
+        }
+    }
+    #ifdef DEBUG
+    int_std single_path = 0;
+    for (int i = 0; i < graph_size; ++i){
+        if ((in[i] == 1 and outd[i] == 1) or in[i] == 0 or outd[i] == 0){
+            single_path++;
+        }
+    }
+    cout << graph_size << ' ' << single_path << endl;
+    #endif
+    graph = new_graph;
+
     thread threads[THREAD_NUM];
     for (int i = 0; i < THREAD_NUM; ++i){
         threads[i] = thread(run_job, i, graph_size);
@@ -341,7 +434,6 @@ int main(){
     for (int i = 0; i < THREAD_NUM; ++i){
         threads[i].join();
     }
-    //cout << double(clock() - beg_t)/CLOCKS_PER_SEC << endl;
 
     //sort(ans.begin(), ans.end());   
     #ifdef DEBUG
@@ -356,7 +448,9 @@ int main(){
         }
     }
     fprintf(fout, "%u\n", total_ans);
-    //cout << total_ans << endl;
+    #ifdef DEBUG
+    cout << total_ans << endl;
+    #endif
     //exit(0);
     //sort(ans[3].begin(), ans[3].end());
     int buff_used = 0;
@@ -364,16 +458,15 @@ int main(){
         //sort(ans[len].begin(), ans[len].end());
         const auto & ans = ans_pool[len];
         for (int i = 0; i < graph_size; ++i){
-            for (const auto& path: ans[i]){
-                //const vector<int_std> & path = d;
-                //fprintf(fout, "%s", id_str[path[0]]);
-                const string & str = id_str[path[0]];
+            int_std thread_id = handle_thread_id[i];
+            const auto & real_a = real_ans[thread_id];
+            for (const auto& start_point: ans[i]){
+                const string & str = id_str[real_a[start_point]];
                 strcpy(out_buff + buff_used, str.c_str());
                 buff_used += str.length();
-                for (unsigned int i = 1; i < path.size(); ++i){
-                    //fprintf(fout, ",%s", id_str[path[i]]);
+                for (unsigned int i = start_point + 1; i < start_point + len; ++i){
                     out_buff[buff_used++] = ',';
-                    const string & str = id_str[path[i]];
+                    const string & str = id_str[real_a[i]];
                     strcpy(out_buff + buff_used, str.c_str());
                     buff_used += str.length();
                 }
@@ -394,7 +487,6 @@ int main(){
     }
     fclose(fout);
     //fclose(fin);
-    //cout << (clock() - beg_t)/CLOCKS_PER_SEC << endl;
     //cout << time_count * 1. / CLOCKS_PER_SEC << endl;
     return 0;
 }
