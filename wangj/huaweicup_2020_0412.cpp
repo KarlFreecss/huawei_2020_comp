@@ -1,4 +1,4 @@
-ï»¿// huaweicup_2020.cpp : æ­¤æ–‡ä»¶åŒ…å« "main" å‡½æ•°ã€‚ç¨‹åºæ‰§è¡Œå°†åœ¨æ­¤å¤„å¼€å§‹å¹¶ç»“æŸã€‚
+// huaweicup_2020.cpp : ´ËÎÄ¼ş°üº¬ "main" º¯Êı¡£³ÌĞòÖ´ĞĞ½«ÔÚ´Ë´¦¿ªÊ¼²¢½áÊø¡£
 //
 #define _CRT_SECURE_NO_WARNINGS 1
 #define MAX_EDGES 280000
@@ -6,6 +6,9 @@
 #define DEBUG 1
 
 #include <stdio.h>
+#ifdef DEBUG
+#include <time.h>
+#endif
 #include <vector>
 #include <unordered_map>
 #include<algorithm>
@@ -43,6 +46,9 @@ void loader(char *filePath) {
 	}
 	uname vIn, vOut, amount;
 	while (fscanf(f, "%u,%u,%u", &vOut, &vIn, &amount) != EOF) {
+		if (vOut == vIn) {
+			continue;
+		}
 		edgeOut.push_back(vOut);
 		edgeIn.push_back(vIn);
 		name2id[vOut] = -1;
@@ -136,7 +142,7 @@ void pathSearch(int len) { // len = 1..BUFFER_SIZE
 	}
 }
 
-void circleSearch() {
+time_t circleSearch() {
 	for (int i = 1; i < 3; i++) { // chang du wei 3 huo 4 de quan
 		for (int j = 0; j < vCount; j++) {
 			for (auto p : pathTable[i][j]) {
@@ -147,6 +153,10 @@ void circleSearch() {
 			}
 		}
 	}
+ 
+#ifdef DEBUG
+	time_t t3h = time(nullptr);
+#endif
 
 	int node4;
 	for (int i = 0; i < 3; i++) { // chang du wei 5, 6 huo 7 de quan
@@ -163,6 +173,11 @@ void circleSearch() {
 			}
 		}
 	}
+#ifdef DEBUG
+	return(t3h);
+#else
+  return(0);
+#endif
 }
 
 void printPath(FILE *f, Path p) {
@@ -202,6 +217,7 @@ void writer(char *filePath) {
 int main()
 {
 #ifdef DEBUG
+	time_t t1 = time(nullptr);
 	char input_path[] = "test_data.txt";
 	char output_path[] = "test_result.txt";
 #else
@@ -210,9 +226,32 @@ int main()
 #endif
 
 	loader(input_path);
+#ifdef DEBUG
+	time_t t2 = time(nullptr);
+#endif
 	for (int i = 1; i < BUFFER_SIZE; i++) {
 		pathSearch(i);
 	}
-	circleSearch();
+#ifdef DEBUG
+	time_t t3 = time(nullptr);
+#endif
+	time_t t3h = circleSearch();
+#ifdef DEBUG
+	time_t t4 = time(nullptr);
+#endif
 	writer(output_path);
+
+#ifdef DEBUG
+  time_t t5 = time(nullptr);
+  
+  FILE* f = fopen("test_time.txt", "w");  
+ 	fprintf(f, "%ld\n%ld\n%ld\n%ld\n%ld\n", t1, t2, t3, t4, t5);
+ 	fprintf(f, "total: %ld\n", t5 - t1);
+ 	fprintf(f, "reader: %ld\n", t2 - t1);
+  fprintf(f, "pathSearch: %ld\n", t3 - t2);
+  fprintf(f, "circleSearch1: %ld\n", t3h - t3);
+  fprintf(f, "circleSearch2: %ld\n", t4 - t3h);
+  fprintf(f, "writer: %ld\n", t5 - t4);
+  fclose(f);
+#endif
 }
