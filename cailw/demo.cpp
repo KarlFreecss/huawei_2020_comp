@@ -46,13 +46,13 @@ void tarjan(uint_std x, int dep){
 }
 
 void dfs(uint_std u, uint_std s, uint_std len, vector<uint_std> & node_list){
-    if (len > 7){
-        return;
-    }
     if (u == s and len > 1){
         if (len >= 3){
             ans.push_back(make_pair(len, node_list));
         }
+        return;
+    }
+    if (len == 7){
         return;
     }
 
@@ -75,8 +75,8 @@ void dfs(uint_std u, uint_std s, uint_std len, vector<uint_std> & node_list){
 }
 
 int main(){
-    //char file_name[] = "/mnt/d/downloads/test_data.txt";
-    char file_name[] = "test_data.txt";
+    char file_name[] = "/mnt/d/downloads/test_data.txt";
+    //char file_name[] = "test_data.txt";
     FILE * fin = fopen(file_name, "r");
     //FILE * fin = fopen("test_data.txt", "r");
     //FILE * fin = fopen("/data/test_data.txt", "r");

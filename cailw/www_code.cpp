@@ -292,7 +292,8 @@ public:
 
 int main()
 {
-    string testFile = "test_data4.txt";
+    string testFile = "test_data.txt";
+    //string testFile = "/mnt/d/downloads/test_data.txt";
     string outputFile = "output.txt";
 #ifdef TEST
     string answerFile = "result.txt";
