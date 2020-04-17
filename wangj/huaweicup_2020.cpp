@@ -3,7 +3,7 @@
 #define _CRT_SECURE_NO_WARNINGS 1
 #define MAX_EDGES 280000
 #define BUFFER_SIZE 3
-#define DEBUG 1
+//#define DEBUG 1
 
 #include <stdio.h>
 #include <vector>
