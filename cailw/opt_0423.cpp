@@ -12,6 +12,12 @@ TODO:
     10. multi thread preprocess
     11. rewrite vector, because clear is so slow()
     12. more detail multi process
+    13. array could save cacha missing
+    14. abca
+        abcda
+        abcdea
+        abcdefa
+        abcdefga
 */
 #define _CRT_SECURE_NO_WARNINGS
 #include <cstdio>
@@ -39,6 +45,9 @@ TODO:
 //#define DEBUG
 #endif
 
+#define likely(x) __builtin_expect(!!(x), 1)
+#define unlikely(x) __builtin_expect(!!(x), 0)
+
 using namespace std;
 
 const int MIN_LENGTH = 3;
@@ -54,10 +63,10 @@ const int MAX_NUM_STRING_SIZE = 7;
 //typedef int int_std;
 typedef int int_std;
 
-int_std rev_graph[MAX_DATA_SIZE], rev_first_last[MAX_DATA_SIZE][2];
+int_std rev_graph[MAX_DATA_SIZE + MAX_ID_NUM * 2], rev_first_last[MAX_DATA_SIZE], tmp_rev_end[MAX_DATA_SIZE];
+int_std graph[MAX_DATA_SIZE], first_edge[MAX_ID_NUM], last_edge[MAX_ID_NUM];
 int_std in_degree[MAX_ID_NUM], out_degree[MAX_ID_NUM];
 
-vector<int_std> graph, first_edge, last_edge;
 
 int_std handle_thread_id[MAX_ID_NUM];
 int_std real_ans[THREAD_NUM][ANS_LENGTH_NUM][MAX_ANS_NUM * 7], real_ans_size[THREAD_NUM][ANS_LENGTH_NUM];
@@ -102,7 +111,7 @@ void search(int_std head,
             const vector<bool> & jump_update_flag,
             vector<bool> & used,
             int_std thread_id,
-            vector<int_std> & first_edge){
+            int_std * first_edge){
     int_std node_list[4];
     int_std & node_list_len = node_list[0];
     node_list_len = 0;
@@ -148,18 +157,18 @@ void search(int_std head,
                 }
 				for (;itr_l < itr_l_end; ++itr_l){
                     const auto l = graph[itr_l];
-					if (jump_update_flag[l] and l != u and l != v) {
+					if (unlikely(jump_update_flag[l] and l != u and l != v)) {
 						quick_jump(head, l, jump, node_list, used, thread_id);
 					}
                 }
                 used[k] = 0;
-                --node_list_len;
+                node_list_len = 2;
             }
             used[v] = 0;
-            --node_list_len;
+            node_list_len = 1;
         }
         used[u] = 0;
-        --node_list_len;
+        node_list_len = 0;
     }
     //used[head] = 0;
 }
@@ -170,14 +179,11 @@ int init_jump(int_std head,
             vector<int_std> & init_node){
     int jump_num = 0;
     init_node.clear();
-    const auto rev_first_edge_head = rev_first_last[head][0];
-    for (int itr_u = rev_first_last[head][1] - 1; itr_u >= rev_first_edge_head && rev_graph[itr_u] > head; --itr_u){
+    for (int itr_u = rev_first_last[head]; rev_graph[itr_u] > head; --itr_u){
         const auto u = rev_graph[itr_u];
-        const auto rev_first_edge_u = rev_first_last[u][0];
-        for (int itr_v = rev_first_last[u][1] - 1; itr_v >= rev_first_edge_u && rev_graph[itr_v] > head; --itr_v){
+        for (int itr_v = rev_first_last[u]; rev_graph[itr_v] > head; --itr_v){
             const auto v = rev_graph[itr_v];
-            const auto & rev_first_edge_v = rev_first_last[v][0];
-            for (int itr_mid = rev_first_last[v][1] - 1; itr_mid >= rev_first_edge_v && rev_graph[itr_mid] >= head; --itr_mid){
+            for (int itr_mid = rev_first_last[v]; rev_graph[itr_mid] >= head; --itr_mid){
                 const auto mid = rev_graph[itr_mid];
                 if (mid != u){
                     if (!jump_update_flag[mid]){
@@ -186,13 +192,13 @@ int init_jump(int_std head,
                         init_node.emplace_back(mid);
                         jump_num+=1;
                     }
-                    jump[mid].emplace_back(make_pair(v, u));
+                    jump[mid].emplace_back((pair<int, int>){v, u});
                 }
             }
         }
     }
     for (const auto & mid : init_node){
-        sort(jump[mid].begin(), jump[mid].end());
+        if (jump[mid].size() > 1) {sort(jump[mid].begin(), jump[mid].end());}
     }
     return jump_num;
 }
@@ -200,7 +206,8 @@ int init_jump(int_std head,
 atomic_long handle_num(-1);
 void run_job(int_std thread_id, int_std graph_size){
     vector<int_std> init_node;
-    vector<int_std> thread_first_edge(first_edge);
+    int_std thread_first_edge[graph_size];
+    memcpy(thread_first_edge, first_edge, graph_size * sizeof(int_std));
     vector<bool> jump_update_flag(graph_size, false);
     vector<vector<pair<int, int>>> jump_pool(graph_size);
 
@@ -230,11 +237,34 @@ vector<pair<int_std, int_std>> tD(MAX_DATA_SIZE);
 inline
 int_std get_num(char buff[], int_std & used_len){
     while (buff[used_len] < '0' or buff[used_len] > '9') ++used_len;
+    const int begin_used_len = used_len;
     int_std ret = buff[used_len++] - '0';
     while (buff[used_len] >= '0' && buff[used_len] <= '9') {
         ret = ret * 10 + buff[used_len++] - '0';
     }
+    if (id_len[ret] == 0){
+        const int len = used_len - begin_used_len;
+        memcpy(id_str[ret] + 1, buff + begin_used_len, len);
+        id_len[ret] = len;
+        id_str[ret][0] = len;
+    }
     return ret;
+}
+
+void mmap_input(char * file_name){
+    int fd = open(file_name, O_RDONLY);
+    long file_len = lseek(fd, 0, SEEK_END);
+    char * in_buff = (char*) mmap(NULL, file_len, PROT_READ, MAP_PRIVATE, fd, 0);
+    int used_len = 0;
+    tD.clear();
+    while (file_len - used_len > 3){
+        const int a = get_num(in_buff, used_len);
+        const int b = get_num(in_buff, used_len);
+        const int c = get_num(in_buff, used_len);
+        if (a == b){continue;}
+        tD.emplace_back(make_pair(a, b));
+    }
+    close(fd);
 }
 
 void quick_input(char * file_name){
@@ -266,7 +296,6 @@ void quick_input(char * file_name){
         tD.emplace_back(make_pair(a, b));
     }
     fclose(fin);
-    sort(tD.begin(), tD.end());
 }
 
 inline
@@ -374,8 +403,7 @@ inline int_std str_copy(char *dst, const string &str){
 
 atomic_long write_num(-1);
 void mmap_multi_thread_writer(const int_std writer_id,
-                              char * out_buff,
-                              const int_std ans_num_offset){
+                              char * out_buff){
     //int_std start_point_pool[THREAD_NUM][ANS_LENGTH_NUM] = {0};
     //int_std end_point_pool[THREAD_NUM][ANS_LENGTH_NUM] = {0};
     auto beg_t = clock();
@@ -385,7 +413,7 @@ void mmap_multi_thread_writer(const int_std writer_id,
         const int head = ans_head[aidx];
         const int len = ans_len[aidx];
         const auto idx = len - MIN_LENGTH;
-        int write_offset = ans_write_addr[aidx] + ans_num_offset;
+        int write_offset = ans_write_addr[aidx];
         int_std start_point = ans_start_point[aidx];
         int_std thread_id = handle_thread_id[head];
         const auto & real_a = real_ans[thread_id][idx];
@@ -434,10 +462,12 @@ void mmap_write_data(char file_name[], const int graph_size){
     #endif
 
     thread threads[WRITER_THREAD_NUM];
-    for (int i = 0; i < WRITER_THREAD_NUM; ++i){
-        threads[i] = thread(mmap_multi_thread_writer, i, out_buff, ans_num_offset);
+    for (int i = 0; i < WRITER_THREAD_NUM-1; ++i){
+        threads[i] = thread(mmap_multi_thread_writer, i, out_buff + ans_num_offset);
     }
-    for (int i = 0; i < WRITER_THREAD_NUM; ++i){
+    mmap_multi_thread_writer(WRITER_THREAD_NUM - 1, out_buff + ans_num_offset);
+    //mmap_multi_thread_writer(WRITER_THREAD_NUM - 1, out_buff, ans_num_offset);
+    for (int i = 0; i < WRITER_THREAD_NUM - 1; ++i){
         threads[i].join();
     }
 
@@ -464,37 +494,45 @@ int preprocess(){
         }   
     }
     const int graph_size = max_node_id + 1;
+    rev_first_last[0] = 1;
+    tmp_rev_end[0] = 1;
+    rev_graph[0] = -1;
     for (int i = 1; i < graph_size; ++i){
-        rev_first_last[i][0] = rev_first_last[i-1][0] + in_degree[i-1];
-        rev_first_last[i][1] = rev_first_last[i][0];
+        if (in_degree[i-1] != 0){
+            rev_first_last[i] = rev_first_last[i-1] + in_degree[i-1] + 1;
+            rev_graph[rev_first_last[i]-1] = -1;
+        } else {
+            rev_first_last[i] = rev_first_last[i-1];
+        }
+        tmp_rev_end[i] = rev_first_last[i];
+        first_edge[i] = first_edge[i-1] + out_degree[i-1];
+        last_edge[i] = first_edge[i];
     }
-    first_edge.resize(graph_size);
-    last_edge.resize(graph_size);
 
     int last = -1;
     int edge_count = 0;
     for (int i = 0; i < tD.size(); ++i){
         int_std a = tD[i].first, b = tD[i].second;//, c = C[i];
         if (in_degree[a] == 0 or out_degree[b] == 0) continue;
-        if (a != last){
-            const string & str = to_string(a);
-            last = a;
-            //id_str[a] = str;
-            strcpy(id_str[a] + 1, str.c_str());
-            id_len[a] = str.length();
-            id_str[a][0] = id_len[a];
-            first_edge[a] = edge_count;
-        }
-        graph.push_back(b);
-        last_edge[a] = ++edge_count;
-        rev_graph[rev_first_last[b][1]++] = a;
+        graph[last_edge[a]++] = b;
+        rev_graph[rev_first_last[b]++] = a;
     }
 
     for (int i = 0; i < graph_size; ++i){
-        if (rev_first_last[i][1] - rev_first_last[i][0] > 1){
-            sort(rev_graph + rev_first_last[i][0], rev_graph + rev_first_last[i][1]);
+        if (last_edge[i] - first_edge[i] > 1){
+            sort(graph + first_edge[i], graph + last_edge[i]);
         }
+        if (rev_first_last[i] - tmp_rev_end[i] > 1){
+            sort(rev_graph + tmp_rev_end[i], rev_graph + rev_first_last[i]);
+        }
+        rev_first_last[i] -= 1;
     }
+    //for (int i = 0; i < 100; ++i) {
+    //    cout << rev_graph[i] << ' ';
+    //} cout << endl;
+    //for (int k = 0; k < 10; ++k){
+    //    cout << rev_first_last[k] << ' ' << tmp_rev_end[k] << endl;
+    //} cout << endl;
 
     #ifdef DEBUG
         cout << "graph_size : " << graph_size << endl;
@@ -521,7 +559,8 @@ int main(){
     //FILE * fin = fopen(file_name, "r");
    
     //cout << 1. * (clock() - beg_t) / CLOCKS_PER_SEC << endl;
-    quick_input(in_file_name);
+    //quick_input(in_file_name);
+    mmap_input(in_file_name);
     #ifdef DEBUG
     cout << "input time cost            : " << 1. * (clock() - beg_t) / CLOCKS_PER_SEC << endl;
     #endif
@@ -533,13 +572,15 @@ int main(){
     #endif
     //cout << 1. * (clock() - beg_t) / CLOCKS_PER_SEC << endl;
 
-    thread threads[THREAD_NUM];
-    for (int i = 0; i < THREAD_NUM; ++i){
+    thread threads[THREAD_NUM - 1];
+    for (int i = 0; i < THREAD_NUM - 1; ++i){
         threads[i] = thread(run_job, i, graph_size);
     }
-    for (int i = 0; i < THREAD_NUM; ++i){
+    run_job(THREAD_NUM - 1, graph_size);
+    for (int i = 0; i < THREAD_NUM - 1; ++i){
         threads[i].join();
     }
+
 
     //sort(ans.begin(), ans.end());   
     //normal_write_data(out_file_name, graph_size);
