@@ -17,6 +17,7 @@ TODO:
 #include <cstring>
 #include <thread>
 #include <atomic>
+#include <fstream>
 
 #include <sys/mman.h>
 #include <unistd.h>
@@ -56,7 +57,7 @@ typedef unsigned int uint_std;
 typedef unsigned char uint_byte;
 
 const int MAX_DATA_RECORD_SIZE  = 2000000;
-const int MAX_ANS_NUM           = 2000000; //TODO : 20000000
+const int MAX_ANS_NUM           = 5000000; //TODO : 20000000
 const int MIN_PATH_LENGTH       = 3;
 const int MAX_PATH_LENGTH       = 7;
 const int MAX_ID_NUM            = MAX_DATA_RECORD_SIZE * 2; // Every record has two relatived account
@@ -142,10 +143,11 @@ void graph_node_edge_init(int_std * graph, int * first_edge, int * nums, int val
     first_edge[0] = 0;
     for (int idx = 1; idx < valid_graph_size; ++idx){
     // In fact, there should be not num equal to zero.
-        int num = nums[idx];
-        if (unlikely(num == 0)){
-            first_edge[idx] = first_edge[idx - 1];
-        } else {
+        int num = nums[idx - 1];
+        //if (unlikely(num == 0)){
+        //    first_edge[idx] = first_edge[idx - 1];
+        //} else {
+        {
             int store_size = ((2 * num + 1) / SINGLE_CACHE_LINE_EDGE_NUM + 1) * SINGLE_CACHE_LINE_EDGE_NUM;
             first_edge[idx] = first_edge[idx - 1] + store_size;
             graph[first_edge[idx]] = first_edge[idx] + 2;
@@ -314,6 +316,7 @@ void preprocess(){
 vector<int_std> node_list;
 vector<pair<int, vector<int_std>>> ans;
 vector<bool> used;
+int total_ans = 0;
 void dfs(int_std head, int_std cur, int_std depth, int_std first_edge_amount, int_std cur_edge_amount){
     int store_point = first_edge[cur];
     int start_point = graph[store_point+1];
@@ -325,6 +328,14 @@ void dfs(int_std head, int_std cur, int_std depth, int_std first_edge_amount, in
                 int amount = graph[start_point+1];
                 if (amount_valid(cur_edge_amount, amount) && amount_valid(amount, first_edge_amount)){
                     ans.push_back(make_pair(depth, node_list));
+                    total_ans++;
+                    if (head == 577 and cur == 84992) {
+                        cout << head << ' ' << cur << ' ' << endl;
+                        cout << cur_edge_amount << ' ' << amount << ' ' << first_edge_amount << endl;
+                    }
+                    if ((total_ans % 100000) == 0){
+                        cout << total_ans << endl;
+                    }
                 }
             }
             continue;
@@ -363,15 +374,16 @@ void run_job(){
         used[head] = 0;
         node_list.pop_back();
     }
-    cout << ans.size() << endl;
+    ofstream fout("dfs_result.txt");
+    fout << ans.size() << endl;
     sort(ans.begin(), ans.end());
     for (const auto & d : ans){
         const auto & a = d.second;
-        cout << (id_str[a[0]] + 1);
+        fout << (id_str[a[0]] + 1);
         for (int i = 1; i < a.size(); ++i){
-            cout << "," << (id_str[a[i]] + 1);
+            fout << "," << (id_str[a[i]] + 1);
         }
-        cout << endl;
+        fout << endl;
     }
 }
 

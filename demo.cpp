@@ -378,8 +378,9 @@ void quick_jump(int_std head,
     auto & real_a_len = real_ans_size[thread_id][idx];
     for (const auto & path : jp){
         if (used[path.first] == false and used[path.second] == false \
-            and amount_check(mid_amount, path.second_amount)
-            and amount_check(path.first_amount, head_amount)){
+            and amount_check(mid_amount, path.first_amount)
+            and amount_check(path.second_amount, head_amount)){
+
             ++ans_pool[idx][head];
             const int node_list_len = node_list[0];
             real_a[real_a_len++] = head;
@@ -456,7 +457,7 @@ void search(int_std head,
                 TRY_QUICK_JUMP(head, k, amount_u);
                 node_list[++node_list_len] = k;
                 EDGE_ITR_INIT(l, k);
-				for (;itr_l < itr_end_l; ++itr_l){
+				for (;itr_l < itr_end_l; itr_l+=2){
                     GET_NODE_INFO(l);
                     if (!amount_check(amount_k, amount_l)) continue;
 					if (unlikely(jump_update_flag[l] and l != u and l != v)) {
@@ -508,7 +509,7 @@ int init_jump(int_std head,
                             init_node.emplace_back(mid);
                             jump_num+=1;
                         }
-                        jump[mid].emplace_back((BackwardPath){v, u, v_amount, u_amount});
+                        jump[mid].emplace_back((BackwardPath){v, u, mid_amount, u_amount});
                     }
                 }
                 //TODO, maybe in here can get path3 directly
