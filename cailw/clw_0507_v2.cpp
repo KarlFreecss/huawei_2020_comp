@@ -47,7 +47,7 @@ TODO:
 #include <ctime>
 #include <chrono>
 
-#define TEST
+//#define TEST
 
 #ifdef TEST
 //#define INPUT_FILE_NAME "test_data.txt"
