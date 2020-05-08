@@ -551,17 +551,17 @@ void search(int_std head,
         used[u] = 1;
         TRY_QUICK_JUMP(head, u, amount_u);
         node_list[++node_list_len] = u;
-        EDGE_ITR_INIT(v, u);
-        //const auto itr_v_idx = second_graph_info[head].first + ((itr_u - global_node_info[head].first) >> 1);
-        //auto itr_v = second_graph_second_info[itr_v_idx].first;
-        //const auto itr_end_v = second_graph_second_info[itr_v_idx].last;
-        //for (; itr_v < itr_end_v; itr_v+=2) {if (second_graph[itr_v] > head) break;}
-        //second_graph_second_info[itr_v_idx].first = itr_v;
+        //EDGE_ITR_INIT(v, u);
+        const auto itr_v_idx = second_graph_info[head].first + ((itr_u - global_node_info[head].first) >> 1);
+        auto itr_v = second_graph_second_info[itr_v_idx].first;
+        const auto itr_end_v = second_graph_second_info[itr_v_idx].last;
+        for (; itr_v < itr_end_v; itr_v+=2) {if (second_graph[itr_v] > head) break;}
+        second_graph_second_info[itr_v_idx].first = itr_v;
         for (; itr_v < itr_end_v; itr_v+= 2){
-            //const auto v = second_graph[itr_v];
-            //auto amount_v = second_graph[itr_v+1];
-            GET_NODE_INFO(v);
-            if (!amount_check(amount_u, amount_v)) continue;
+            const auto v = second_graph[itr_v];
+            auto amount_v = second_graph[itr_v+1];
+            //GET_NODE_INFO(v);
+            //if (!amount_check(amount_u, amount_v)) continue;
             used[v] = 1;
             TRY_QUICK_JUMP(head, v, amount_u);
             node_list[++node_list_len] = v;
