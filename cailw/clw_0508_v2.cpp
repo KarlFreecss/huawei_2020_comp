@@ -183,7 +183,7 @@ struct NodeInfo{
     int last;
 };
 
-NodeInfo second_graph_info[MAX_ID_NUM];
+int second_graph_info[MAX_ID_NUM];
 NodeInfo global_second_graph_second_info[MAX_DATA_RECORD_SIZE];
 NodeInfo second_graph_second_info[THREAD_NUM][MAX_DATA_RECORD_SIZE];
 int second_graph[MAX_DATA_RECORD_SIZE * second_coef];
@@ -399,8 +399,7 @@ void build_second_graph(){
         auto itr_u = global_node_info[head].first;
         const auto itr_u_end = global_node_info[head].last;
 
-        second_graph_info[head].first = node_info_count;
-        second_graph_info[head].last = node_info_count;
+        second_graph_info[head] = node_info_count;
 
         for (; itr_u < itr_u_end; itr_u += 2){
             const auto u = graph[itr_u];
@@ -439,13 +438,14 @@ void preprocess(){
     }
     #endif
 
-    thread thread0;
-    thread0 = thread(build_rev_graph);
+    //thread thread0;
+    //thread0 = thread(build_rev_graph);
     build_graph();
+    build_rev_graph();
 
     build_second_graph();
 
-    thread0.join();
+    //thread0.join();
 
     #ifdef REQUIRE_DEBUG_INFO
     {
@@ -552,7 +552,7 @@ void search(int_std head,
         TRY_QUICK_JUMP(head, u, amount_u);
         node_list[++node_list_len] = u;
         //EDGE_ITR_INIT(v, u);
-        const auto itr_v_idx = second_graph_info[head].first + ((itr_u - global_node_info[head].first) >> 1);
+        const auto itr_v_idx = second_graph_info[head] + ((itr_u - global_node_info[head].first) >> 1);
         auto itr_v = second_graph_second_info[itr_v_idx].first;
         const auto itr_end_v = second_graph_second_info[itr_v_idx].last;
         for (; itr_v < itr_end_v; itr_v+=2) {if (second_graph[itr_v] > head) break;}
@@ -582,7 +582,7 @@ void search(int_std head,
                 node_list[++node_list_len] = k;
 
                 //const auto itr_l_idx = second_graph_info[v].first + ((itr_k - global_second_graph_second_info[itr_k_idx].first) >> 1);
-                const auto itr_l_idx = second_graph_info[v].first + ((itr_k - global_node_info[v].first) >> 1);
+                const auto itr_l_idx = second_graph_info[v] + ((itr_k - global_node_info[v].first) >> 1);
                 auto itr_l = second_graph_second_info[itr_l_idx].first;
                 const auto itr_end_l = second_graph_second_info[itr_l_idx].last;
                 for (; itr_l < itr_end_l; itr_l+=2) {if (second_graph[itr_l] > head) break;}
