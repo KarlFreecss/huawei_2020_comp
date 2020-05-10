@@ -8,7 +8,7 @@ TODO:
             TODO: need copy graph every thread.
         2.2 Maybe need continue consider (receiver, amount, first_edge[receiver])
             This align will add 1/3 cache missing afford and reduce first_edge access cache missing;
-            It is obviously, in search function first 3 for loop can use 2.2 strategy
+            It is obviously, in search function first 3 for loop can use 2.2 strategy 
             but fourth for loop use 2.1 is good enough.
         2.3 every cache line blcok stores start_point, end_point, min_amount, max_amount
     3. answer store, I think just like before is ok, but need do some adjustion,
@@ -17,7 +17,7 @@ TODO:
     5. maybe we can use segment tree, to quick judge whether the amount is suitable.
         But this method will incur extra access cost.
         So it would be a trade-off about how width range the leave node of segment tree is.
-        When the id of head increasing, the meaning size would be less and
+        When the id of head increasing, the meaning size would be less and 
             segment tree would be expensive.
         So, we can try every cache line block record the max-min value;
         [r_0, a_0, r_1, a_1, ..., r_6, a_6, min, max]
@@ -45,14 +45,13 @@ TODO:
 #include <fcntl.h>
 
 #include <ctime>
+#include <chrono>
 
 //#define TEST
 
 #ifdef TEST
 #define INPUT_FILE_NAME "test_data.txt"
 #define OUTPUT_FILE_NAME "result.txt"
-//#define INPUT_FILE_NAME "/data/test_data.txt"
-//#define OUTPUT_FILE_NAME "/projects/student/result.txt"
 #else
 #define INPUT_FILE_NAME "/data/test_data.txt"
 #define OUTPUT_FILE_NAME "/projects/student/result.txt"
@@ -93,9 +92,12 @@ const int WRITER_THREAD_NUM     = 4;
 const int MAX_ID_STRING_LENGTH  = 12; //log(2 ** 32) + 1
 const int ID_HASH_TABLE_SIZE    = 27579263; // MAX_ID_NUM * 2 * 7, bigger is better;
 
-const int JUMP_HASH_TABLE_SIZE    = 40009;
+const int JUMP_TABLE_SIZE    = 40009;
 const int JUMP_PATH_PER_NODE    = 1024;
 
+/////////////////////////////////////////////////
+////////////////////// Hash Code ////////////////
+/////////////////////////////////////////////////
 /*
     Here, we face a trade-off about set all byte of id_hash_table to [0xff],
     or, use another table to record whether it be used.
@@ -115,31 +117,13 @@ uint_std id_hash_table_key[ID_HASH_TABLE_SIZE];
 uint_std id_hash_table_value[ID_HASH_TABLE_SIZE];
 uint_byte id_hash_table_flag[ID_HASH_TABLE_SIZE];
 
-struct BackwardPath{
-    int first, second;
-    int first_amount, second_amount;
-
-    bool operator<(const BackwardPath & T) const {
-        if (first == T.first) return second < T.second;
-        return first < T.first;
-    }
-};
-
-uint_std jump_hash_table_key[THREAD_NUM][JUMP_HASH_TABLE_SIZE];
-uint_byte jump_hash_table_flag[THREAD_NUM][JUMP_HASH_TABLE_SIZE];
-BackwardPath jump_table[THREAD_NUM][JUMP_HASH_TABLE_SIZE][JUMP_PATH_PER_NODE];
-int jump_table_length[THREAD_NUM][JUMP_HASH_TABLE_SIZE];
-
-const int SINGLE_CACHE_LINE_EDGE_NUM = CACHE_LINE_SIZE / (sizeof(int_std));
-const int MAX_GRAPH_SIZE = (MAX_ID_NUM) * SINGLE_CACHE_LINE_EDGE_NUM + MAX_DATA_RECORD_SIZE * 3;
-
 /*
     The purpose of hash is mapping id to unique rank (or idx).
     And maybe check id whether this id is appeared.
     The id num is smaller than ID_HASH_TABLE_SIZE, so, it don't have any size check.
 */
 inline
-int_std get_id_hash_idx(int_std id){
+int_std get_hash_idx(int_std id){
     int_std idx = id % ID_HASH_TABLE_SIZE;
     while (id_hash_table_flag[idx] != 0 && id_hash_table_key[idx] != id) {
         ++idx;
@@ -149,8 +133,8 @@ int_std get_id_hash_idx(int_std id){
 }
 
 inline
-int_std id_hash_insert(int_std id){
-    int_std idx = get_id_hash_idx(id);
+int_std hash_insert(int_std id){
+    int_std idx = get_hash_idx(id);
     if (id_hash_table_flag[idx] != 0) return -1;
     id_hash_table_flag[idx] = 1;
     id_hash_table_key[idx] = id;
@@ -158,8 +142,8 @@ int_std id_hash_insert(int_std id){
 }
 
 inline
-int_std id_hash_mapping(int_std id, int_std value){
-    int_std idx = get_id_hash_idx(id);
+int_std hash_mapping(int_std id, int_std value){
+    int_std idx = get_hash_idx(id);
     id_hash_table_flag[idx] = 1;
     id_hash_table_key[idx] = id;
     id_hash_table_value[idx] = value;
@@ -167,46 +151,15 @@ int_std id_hash_mapping(int_std id, int_std value){
 }
 
 inline
-int_std id_hash_query(int_std id){
-    int_std idx = get_id_hash_idx(id);
+int_std hash_query(int_std id){
+    int_std idx = get_hash_idx(id);
     if (id_hash_table_flag[idx] == 0) return -1;
     return id_hash_table_value[idx];
 }
 
-inline
-int_std get_jump_hash_idx(int_std id, int thread_id){
-    int_std idx = id % JUMP_HASH_TABLE_SIZE;
-    int_std idx1 = idx;
-    while (jump_hash_table_flag[thread_id][idx] != 0 && jump_hash_table_key[thread_id][idx] != id) {
-        ++idx;
-        if (idx >= JUMP_HASH_TABLE_SIZE) {idx = 0;}
-        #ifdef TEST
-        if (idx == idx1) {
-            cout << "hash table full [1]" << endl;
-            for (int i = 0; i < JUMP_HASH_TABLE_SIZE; i++){
-                cout << "element " << i << " mid " << jump_hash_table_key[thread_id][i] << " len " << jump_table_length[thread_id][i] << endl;
-            }
-            exit(-1);
-        }
-        #endif
-    }
-    return idx;
-}
-
-inline
-int_std jump_hash_insert(int_std id, int thread_id){
-    int_std idx = get_jump_hash_idx(id, thread_id);
-    if (jump_hash_table_flag[thread_id][idx] != 0) return -1;
-    jump_hash_table_flag[thread_id][idx] = 1;
-    jump_hash_table_key[thread_id][idx] = id;
-    return idx;
-}
-
-inline
-void jump_hash_clear(vector<int_std> & init_idx, int thread_id){
-    for (auto idx : init_idx)
-        jump_hash_table_flag[thread_id][idx] = false;
-}
+/////////////////////////////////////////////////
+///////////////// Graph Access //////////////////
+/////////////////////////////////////////////////
 
 struct Data{
     int a, b, c;
@@ -216,11 +169,14 @@ struct RevData{
     int b, a, c;
 };
 
+const int SINGLE_CACHE_LINE_EDGE_NUM = CACHE_LINE_SIZE / (sizeof(int_std));
+const int MAX_GRAPH_SIZE = (MAX_ID_NUM) * SINGLE_CACHE_LINE_EDGE_NUM + MAX_DATA_RECORD_SIZE * 3;
+
 struct NodeInfo{
     int first;
     int last;
-    //int min;
-    //int max;
+    int min;
+    int max;
 };
 
 int_std ALIGNED graph[MAX_GRAPH_SIZE];
@@ -231,8 +187,8 @@ NodeInfo ALIGNED rev_node_info[MAX_ID_NUM];
 
 inline
 void graph_node_edge_init(int_std * graph, NodeInfo * node_info, int * nums, int valid_graph_size){
-    //node_info[0].min = 0x7fffffff;
-    //node_info[0].max = 0;
+    node_info[0].min = 0x7fffffff;
+    node_info[0].max = 0;
     for (int idx = 1; idx < valid_graph_size; ++idx){
     // In fact, there should be not num equal to zero.
         int num = nums[idx - 1];
@@ -243,8 +199,8 @@ void graph_node_edge_init(int_std * graph, NodeInfo * node_info, int * nums, int
             node_info[idx].first = node_info[idx - 1].first + store_size;
         }
         node_info[idx].last = node_info[idx].first;
-        //node_info[idx].min = 0x7fffffff;
-        //node_info[idx].max = 0;
+        node_info[idx].min = 0x7fffffff;
+        node_info[idx].max = 0;
     }
 }
 
@@ -257,8 +213,8 @@ void graph_node_edge_add(int_std * graph, NodeInfo * node_info, Data * tD, int t
         graph[end_idx] = d->b;
         graph[end_idx + 1] = d->c;
         end_idx += 2;
-        //node_info[d->a].max = max(d->c, node_info[d->a].max);
-        //node_info[d->a].min = min(d->c, node_info[d->a].min);
+        node_info[d->a].max = max(d->c, node_info[d->a].max);
+        node_info[d->a].min = min(d->c, node_info[d->a].min);
     }
 }
 
@@ -281,7 +237,7 @@ struct RevEdgeData{
 };
 
 template<class T>
-inline
+inline 
 void graph_node_edge_sort(int_std * graph, NodeInfo * node_info, int valid_graph_size){
     for (int i = 0; i < valid_graph_size; ++i){
         const int first = node_info[i].first, last = node_info[i].last;
@@ -309,6 +265,11 @@ int_std get_num(char buff[], int_std & used_len){
     return ret;
 }
 
+
+/////////////////////////////////////////////////
+///////////////// IO Operation //////////////////
+/////////////////////////////////////////////////
+
 const int MAX_BUFF_SIZE = 4096 * 1024;
 const int SAFE_BUFF_SIZE = 2048 * 1024;
 const int LEAST_DATA_LEFT = 1024;
@@ -333,8 +294,8 @@ void quick_input(char * file_name){
             const int c = get_num(in_buff, used_len);
             if (a == b){continue;}
             PUSH_BACK(tD, tD_size, ((Data){a,b,c}));
-            if (id_hash_insert(a) >= 0) PUSH_BACK(ids, ids_size, a);
-            if (id_hash_insert(b) >= 0) PUSH_BACK(ids, ids_size, b);
+            if (hash_insert(a) >= 0) PUSH_BACK(ids, ids_size, a);
+            if (hash_insert(b) >= 0) PUSH_BACK(ids, ids_size, b);
         }
         left_data_size = left_data_size - used_len;
         memcpy(in_buff, in_buff + used_len, left_data_size);
@@ -346,8 +307,8 @@ void quick_input(char * file_name){
         const int c = get_num(in_buff, used_len);
         if (a == b){continue;}
         PUSH_BACK(tD, tD_size, ((Data){a,b,c}));
-        if (id_hash_insert(a) >= 0) PUSH_BACK(ids, ids_size, a);
-        if (id_hash_insert(b) >= 0) PUSH_BACK(ids, ids_size, b);
+        if (hash_insert(a) >= 0) PUSH_BACK(ids, ids_size, a);
+        if (hash_insert(b) >= 0) PUSH_BACK(ids, ids_size, b);
     }
     sort(ids, ids + ids_size);
     fclose(fin);
@@ -364,21 +325,25 @@ void quick_input(char * file_name){
 //        const int b = get_num(in_buff, used_len);
 //        const int c = get_num(in_buff, used_len);
 //        PUSH_BACK(tD, tD_size, ((Data){a,b,c}));
-//        if (id_hash_insert(a) >= 0) PUSH_BACK(ids, ids_size, a);
-//        if (id_hash_insert(b) >= 0) PUSH_BACK(ids, ids_size, b);
+//        if (hash_insert(a) >= 0) PUSH_BACK(ids, ids_size, a);
+//        if (hash_insert(b) >= 0) PUSH_BACK(ids, ids_size, b);
 //    }
 //    close(fd);
 //}
+
+/////////////////////////////////////////////////
+////////////////// Preprocess ///////////////////
+/////////////////////////////////////////////////
 
 int in_degree[MAX_ID_NUM];
 int out_degree[MAX_ID_NUM];
 char id_str[MAX_ID_NUM][((MAX_ID_STRING_LENGTH) / 8 + 1) * 8];
 char id_len[MAX_ID_NUM];
 
-inline
+inline 
 void reid(){
     for (int i = 0; i < ids_size; ++i){
-        id_hash_mapping(ids[i], i);
+        hash_mapping(ids[i], i);
         const string str = to_string(ids[i]);
         id_len[i] = str.length();
         id_str[i][0] = str.length();
@@ -386,8 +351,8 @@ void reid(){
     }
     for (int i = 0; i < tD_size; ++i){
         auto & d = tD[i];
-        d.a = id_hash_query(d.a);
-        d.b = id_hash_query(d.b);
+        d.a = hash_query(d.a);
+        d.b = hash_query(d.b);
         out_degree[d.a] += 1;
         in_degree[d.b] += 1;
     }
@@ -405,17 +370,36 @@ void preprocess(){
     graph_node_edge_sort<RevEdgeData>(rev_graph, rev_node_info, ids_size);
 }
 
+/////////////////////////////////////////////////
+/////////////////////////////////////////////////
+
 //#define amount_valid(X,Y) (((X)<=5ll*(Y))&&((Y)<=3ll*(X)))
 inline
 bool amount_check(int X, int Y){
     return (X <= 5ll * Y) && (Y <= 3ll * X);
 }
 
+struct BackwardPath{
+    int first, second;
+    int first_amount, second_amount;
+
+    bool operator<(const BackwardPath & T) const {
+        if (first == T.first) return second < T.second;
+        return first < T.first;
+    }
+};
+
 uint_byte used_pool[THREAD_NUM][MAX_ID_NUM];
 uint_byte handle_thread_id[MAX_ID_NUM];
+BackwardPath global_jump_table[THREAD_NUM][JUMP_TABLE_SIZE][JUMP_PATH_PER_NODE];
+int global_jump_status[THREAD_NUM][MAX_ID_NUM];
+
+#define idx2status(n) ((n) << 16)
+#define status2idx(n) ((n) >> 16)
+#define status2len(n) ((n) & 0xffff)
 
 //inline
-void quick_jump(int_std head,
+void quick_jump(int_std head, 
                 int_std mid,
                 BackwardPath * jump,
                 int jump_length,
@@ -425,6 +409,7 @@ void quick_jump(int_std head,
                 int_std mid_amount,
                 int_std head_amount){
     const int idx = node_list[0] + 1;
+    const auto & jp = jump[mid];
     auto & real_a = real_ans[thread_id][idx];
     auto & real_a_len = real_ans_size[thread_id][idx];
     for (int j = 0; j < jump_length; j++){
@@ -446,11 +431,12 @@ void quick_jump(int_std head,
     }
 }
 
-void head_quick_jump(int_std head,
+void head_quick_jump(int_std head, 
                 BackwardPath * jump,
                 int jump_length,
                 int_std thread_id){
     const int idx = 0;
+    const auto & jp = jump[head];
     auto & real_a = real_ans[thread_id][idx];
     auto & real_a_len = real_ans_size[thread_id][idx];
     for (int j = 0; j < jump_length; j++){
@@ -475,27 +461,28 @@ void head_quick_jump(int_std head,
                 const auto x = graph[itr_##x];\
                 const auto amount_##x = graph[itr_##x + 1];
 
-#define TRY_QUICK_JUMP(head, v, amount_head) if(jump_update_flag[v])\
-                {auto idx = get_jump_hash_idx(v, thread_id);\
-                quick_jump(head, v, jump[idx], jump_length[idx], node_list, used, thread_id, amount_##v, amount_head);}
+#define TRY_QUICK_JUMP(head, v, amount_head) if (jump_status[v] > 0)\
+                quick_jump(head, v, jump_table[status2idx(jump_status[v])], status2len(jump_status[v]), \
+                    node_list, used, thread_id, amount_##v, amount_head)
+
+#define POSSIBLE(x, v) if ((amount_##x > 5ll * node_info[v].max) and (3ll * amount_##x < node_info[v].min)) continue;
 
 void search(int_std head,
-            BackwardPath (*jump)[JUMP_PATH_PER_NODE],
-            int * jump_length,
-            const vector<bool> & jump_update_flag,
+            BackwardPath (*jump_table)[JUMP_PATH_PER_NODE],
+            int * jump_status,
             uint_byte * used,
             int_std thread_id,
             NodeInfo * node_info){
-    if (jump_update_flag[head]) {
-        auto idx = get_jump_hash_idx(head, thread_id);
-        head_quick_jump(head, jump[idx], jump_length[idx], thread_id);
-    }
+    if (jump_status[head] > 0) head_quick_jump(head, jump_table[status2idx(jump_status[head])], status2len(jump_status[head]), thread_id);
     int_std node_list[4];
     int_std & node_list_len = node_list[0];
-    node_list_len = 0;
+    node_list_len = 0; 
     EDGE_ITR_INIT(u, head);
     for (;itr_u < itr_end_u; itr_u+=2){
         GET_NODE_INFO(u); //u and amount
+        POSSIBLE(u, u);
+        //cout << amount_u << ' ' << u << ' ' << node_info[0].min << ' ' << node_info[0].max << endl;
+        //exit(0);
         used[u] = 1;
         TRY_QUICK_JUMP(head, u, amount_u);
         node_list[++node_list_len] = u;
@@ -503,6 +490,7 @@ void search(int_std head,
         for (;itr_v < itr_end_v; itr_v+=2){
             GET_NODE_INFO(v);
             if (!amount_check(amount_u, amount_v)) continue;
+            POSSIBLE(v, v);
             used[v] = 1;
             TRY_QUICK_JUMP(head, v, amount_u);
             node_list[++node_list_len] = v;
@@ -511,6 +499,7 @@ void search(int_std head,
                 GET_NODE_INFO(k);
                 if (!amount_check(amount_v, amount_k)) continue;
                 if (k == u) continue;
+                POSSIBLE(k, k);
                 used[k] = 1;
                 TRY_QUICK_JUMP(head, k, amount_u);
                 node_list[++node_list_len] = k;
@@ -518,9 +507,9 @@ void search(int_std head,
 				for (;itr_l < itr_end_l; itr_l+=2){
                     GET_NODE_INFO(l);
                     if (!amount_check(amount_k, amount_l)) continue;
-					if (unlikely(jump_update_flag[l] and l != u and l != v)) {
-                        auto idx = get_jump_hash_idx(l, thread_id);
-						quick_jump(head, l, jump[idx], jump_length[idx], node_list, used, thread_id, amount_l, amount_u);
+					if (unlikely(jump_status[l] > 0 and l != u and l != v)) {
+						quick_jump(head, l, jump_table[status2idx(jump_status[l])], status2len(jump_status[l]), \
+                            node_list, used, thread_id, amount_l, amount_u);
 					}
                 }
                 used[k] = 0;
@@ -534,16 +523,12 @@ void search(int_std head,
     }
 }
 
-int init_jump(int_std head,
-            BackwardPath (*jump)[JUMP_PATH_PER_NODE],
-            int * jump_length,
-            vector<bool> & jump_update_flag,
-            vector<int_std> & init_node,
-            vector<int_std> & init_idx,
-            int_std thread_id){
+int init_jump(int_std head, 
+            BackwardPath (*jump_table)[JUMP_PATH_PER_NODE],
+            int * jump_status,
+            vector<int_std> & init_node){
     int jump_num = 0;
     init_node.clear();
-    init_idx.clear();
     auto itr_u = rev_node_info[head].first;
     const auto itr_u_end = rev_node_info[head].last;
     for (; itr_u < itr_u_end && rev_graph[itr_u] > head; itr_u += 2){
@@ -566,25 +551,24 @@ int init_jump(int_std head,
                     const auto mid_amount = rev_graph[itr_mid + 1];
                     if (amount_check(mid_amount, v_amount) && mid != u){
                         if (head == mid && !amount_check(u_amount, mid_amount)) continue;
-                        int idx;
-                        if (jump_update_flag[mid] == false){
-                            jump_update_flag[mid] = true;
-                            idx = jump_hash_insert(mid, thread_id);
-                            jump_length[idx] = 0;
+                        if (jump_status[mid] == 0){
+                            jump_status[mid] = idx2status(jump_num);
                             init_node.emplace_back(mid);
-                            init_idx.emplace_back(idx);
-                            jump_num+=1;
+                            jump_num += 1;
+                            #ifdef TEST
+                                if (jump_num == JUMP_TABLE_SIZE) {
+                                    cout << "jump table full [1]" << endl;
+                                    exit(-1);
+                                }
+                            #endif
                         }
-                        else{
-                            idx = get_jump_hash_idx(mid, thread_id);
-                        }
-                        jump[idx][jump_length[idx]] = (BackwardPath){v, u, mid_amount, u_amount};
-                        jump_length[idx]++;
+                        jump_table[status2idx(jump_status[mid])][status2len(jump_status[mid])] = (BackwardPath){v, u, mid_amount, u_amount};
+                        jump_status[mid]++;
                         #ifdef TEST
-                        if (jump_length[idx] == JUMP_PATH_PER_NODE) {
-                            cout << "hash table full [2]" << endl;
-                            exit(-2);
-                        }
+                            if (status2len(jump_status[mid]) == JUMP_PATH_PER_NODE) {
+                                cout << "jump table full [2]" << endl;
+                                exit(-2);
+                            }
                         #endif
                     }
                 }
@@ -595,48 +579,55 @@ int init_jump(int_std head,
 
     }
     for (const auto & mid : init_node){
-        auto idx = get_jump_hash_idx(mid, thread_id);
-        if (jump_length[idx] > 1) {
-            sort(jump[idx], jump[idx] + jump_length[idx]);
-        }
+        int s = jump_status[mid];
+        if (status2len(s) > 1) {sort(jump_table[status2idx(s)], jump_table[status2idx(s)] + status2len(s));}
     }
     return jump_num;
 }
 
 atomic_long handle_num(-1);
-void run_job(int_std thread_id, int_std graph_size, BackwardPath (*jump_thread)[JUMP_PATH_PER_NODE], int * jump_length_thread){
+void run_job(int_std thread_id, int_std graph_size){
     vector<int_std> init_node;
-    vector<int_std> init_idx;
     NodeInfo thread_node_info[graph_size];
     memcpy(thread_node_info, node_info, graph_size * sizeof(NodeInfo));
     vector<bool> jump_update_flag(graph_size, false);
+    auto jump_table = global_jump_table[thread_id];
+    auto jump_status = global_jump_status[thread_id];
+    #ifdef REQUIRE_DEBUG_INFO
+    auto start = chrono::steady_clock::now();
+    #endif
 
     auto & used = used_pool[thread_id];
     for (int t = 0; t < graph_size; ++t){
         int i = handle_num += 1;
         if (i >= graph_size){break;}
-        const int jump_num = init_jump(i, jump_thread, jump_length_thread, jump_update_flag, init_node, init_idx, thread_id);
+        const int jump_num = init_jump(i, jump_table, jump_status, init_node);
         handle_thread_id[i] = thread_id;
         if (jump_num > 0){
-            search(i, jump_thread, jump_length_thread, jump_update_flag, used, thread_id, thread_node_info);
+            search(i, jump_table, jump_status, used, thread_id, thread_node_info);
             for (const auto & mid : init_node){
-                jump_update_flag[mid] = false;               
+                jump_status[mid] = 0;
             }
-            jump_hash_clear(init_idx, thread_id);
         }
     }
+    #ifdef REQUIRE_DEBUG_INFO
+    auto end = std::chrono::steady_clock::now();
+    chrono::duration<double> elapsed_seconds = end-start;
+    cout << "thread #" << thread_id << " elapsed time: " << elapsed_seconds.count() << "s\n";
+    #endif
 }
 
 void solve(){
     thread threads[THREAD_NUM - 1];
-    for (int i = 0; i < THREAD_NUM - 1; ++i){
-        threads[i] = thread(run_job, i, ids_size, jump_table[i], jump_table_length[i]);
+    for (int i = 0; i < THREAD_NUM-1; ++i){
+        threads[i] = thread(run_job, i, ids_size);
     }
-    run_job(THREAD_NUM - 1, ids_size, jump_table[THREAD_NUM - 1], jump_table_length[THREAD_NUM - 1]);
+    run_job(THREAD_NUM - 1, ids_size);
     for (int i = 0; i < THREAD_NUM - 1; ++i){
         threads[i].join();
     }
 }
+
 
 inline
 void write_count(const int graph_size, int_std & total_ans, int_std & out_size){
@@ -785,7 +776,7 @@ void mmap_write_data(char file_name[], const int graph_size){
 
     #ifdef REQUIRE_DEBUG_INFO
     cout << "mmap write time cost       : " << 1. * (clock() - beg_t) / CLOCKS_PER_SEC << endl;
-    cout << "total ans is : " << total_ans << endl;
+    cout << "total ans is : " << total_ans << endl; 
     #endif
     //munmap(out_buff, out_size);
     //_exit(0);
@@ -829,7 +820,7 @@ int main(){
     #ifdef REQUIRE_DEBUG_INFO
     cout << "preprocess time cost       : " << 1. * (clock() - beg_t) / CLOCKS_PER_SEC << endl;
     #endif
-
+    
     solve();
 
     char output_file_name [] = OUTPUT_FILE_NAME;

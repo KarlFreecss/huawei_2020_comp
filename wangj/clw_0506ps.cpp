@@ -50,10 +50,8 @@ TODO:
 //#define TEST
 
 #ifdef TEST
-//#define INPUT_FILE_NAME "test_data.txt"
-//#define OUTPUT_FILE_NAME "result.txt"
-#define INPUT_FILE_NAME "/data/test_data.txt"
-#define OUTPUT_FILE_NAME "/projects/student/result.txt"
+#define INPUT_FILE_NAME "test_data.txt"
+#define OUTPUT_FILE_NAME "result.txt"
 #else
 #define INPUT_FILE_NAME "/data/test_data.txt"
 #define OUTPUT_FILE_NAME "/projects/student/result.txt"
@@ -236,11 +234,9 @@ struct RevEdgeData{
 };
 
 template<class T>
-void graph_node_edge_sort_thread(int_std * graph, NodeInfo * node_info, int_std graph_size, atomic_long handle_sort){
-    for (int t = 0; t < graph_size; ++t){
-        int i = handle_sort += 1;
-        if (i >= graph_size){break;}
-        int first = node_info[i].first, last = node_info[i].last;
+void graph_node_edge_sort_thread(int_std * graph, NodeInfo * node_info, int_std graph_size, int begin){
+    for (int t = begin; t < graph_size; t = t + 2){
+        int first = node_info[t].first, last = node_info[t].last;
         if (last - first > 2) {
             sort((T *)(graph + first), (T *)(graph + last));  
         }      
@@ -249,10 +245,9 @@ void graph_node_edge_sort_thread(int_std * graph, NodeInfo * node_info, int_std 
 
 template<class T>
 void graph_node_edge_sort(int_std * graph, NodeInfo * node_info, int_std graph_size){
-    atomic_long handle_sort(-1);
     thread thread0;
-    thread0 = thread(graph_node_edge_sort_thread<T>, graph, node_info, graph_size, handle_sort);
-    graph_node_edge_sort_thread<T>(graph, node_info, graph_size, handle_sort);
+    thread0 = thread(graph_node_edge_sort_thread<T>, graph, node_info, graph_size, 0);
+    graph_node_edge_sort_thread<T>(graph, node_info, graph_size, 1);
     thread0.join();
 }
 
