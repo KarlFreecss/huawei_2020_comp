@@ -47,7 +47,7 @@ TODO:
 #include <ctime>
 #include <chrono>
 
-#define TEST
+//#define TEST
 
 #ifdef TEST
 #define INPUT_FILE_NAME "test_data.txt"
@@ -530,57 +530,67 @@ void search(int_std head,
     }
 }
 
+#define IMPOSSIBLE_JUMP(u) if ((5ll * amount_##u < rev_node_info[u].min) or (3ll * rev_node_info[u].max < amount_##u)) continue
+
+#define ALWAYS_JUMP(u) if ((rev_node_info[u].max <= 5ll * amount_##u) and (3ll * rev_node_info[u].min >= amount_##u)) always_check_##u = 1; else always_check_##u = 0
+
 int init_jump(int_std head, 
             BackwardPath (*jump_table)[JUMP_PATH_PER_NODE],
             int * jump_status,
             vector<int_std> & init_node){
     int jump_num = 0;
+    int always_check_u, always_check_v;
     init_node.clear();
     auto itr_u = rev_node_info[head].first;
     const auto itr_u_end = rev_node_info[head].last;
     for (; itr_u < itr_u_end && rev_graph[itr_u] > head; itr_u += 2){
 
         const auto u = rev_graph[itr_u];
-        const auto u_amount = rev_graph[itr_u + 1];
+        const auto amount_u = rev_graph[itr_u + 1];
+        IMPOSSIBLE_JUMP(u);
+        ALWAYS_JUMP(u);
+
         auto itr_v = rev_node_info[u].first;
         const auto itr_v_end = rev_node_info[u].last;
         for (; itr_v < itr_v_end && rev_graph[itr_v] > head; itr_v += 2){
 
             const auto v = rev_graph[itr_v];
-            const auto v_amount = rev_graph[itr_v + 1];
+            const auto amount_v = rev_graph[itr_v + 1];
+            if (always_check_u == 0 && !amount_check(amount_v, amount_u)) continue;
+            IMPOSSIBLE_JUMP(v);
+            ALWAYS_JUMP(v);
 
-            if (amount_check(v_amount, u_amount)){
-                auto itr_mid = rev_node_info[v].first;
-                const auto itr_mid_end = rev_node_info[v].last;
-
-                for (; itr_mid < itr_mid_end && rev_graph[itr_mid] >= head; itr_mid += 2){
-                    const auto mid = rev_graph[itr_mid];
-                    const auto mid_amount = rev_graph[itr_mid + 1];
-                    if (amount_check(mid_amount, v_amount) && mid != u){
-                        if (head == mid && !amount_check(u_amount, mid_amount)) continue;
-                        if (jump_status[mid] == 0){
-                            jump_status[mid] = idx2status(jump_num);
-                            init_node.emplace_back(mid);
-                            jump_num += 1;
-                            #ifdef TEST
-                                if (jump_num == JUMP_TABLE_SIZE) {
-                                    cout << "jump table full [1]" << endl;
-                                    exit(-1);
-                                }
-                            #endif
-                        }
-                        jump_table[status2idx(jump_status[mid])][status2len(jump_status[mid])] = (BackwardPath){v, u, mid_amount, u_amount};
-                        jump_status[mid]++;
+            auto itr_mid = rev_node_info[v].first;
+            const auto itr_mid_end = rev_node_info[v].last;
+            for (; itr_mid < itr_mid_end && rev_graph[itr_mid] >= head; itr_mid += 2){
+                const auto mid = rev_graph[itr_mid];
+                const auto amount_mid = rev_graph[itr_mid + 1];
+                if (always_check_v == 0 && !amount_check(amount_mid, amount_v)) continue;
+                if (mid != u){
+                    if (head == mid && !amount_check(amount_u, amount_mid)) continue;
+                    if (jump_status[mid] == 0){
+                        jump_status[mid] = idx2status(jump_num);
+                        init_node.emplace_back(mid);
+                        jump_num += 1;
                         #ifdef TEST
-                            if (status2len(jump_status[mid]) == JUMP_PATH_PER_NODE) {
-                                cout << "jump table full [2]" << endl;
-                                exit(-2);
+                            if (jump_num == JUMP_TABLE_SIZE) {
+                                cout << "jump table full [1]" << endl;
+                                exit(-1);
                             }
                         #endif
                     }
+                    jump_table[status2idx(jump_status[mid])][status2len(jump_status[mid])] = (BackwardPath){v, u, amount_mid, amount_u};
+                    jump_status[mid]++;
+                    #ifdef TEST
+                        if (status2len(jump_status[mid]) == JUMP_PATH_PER_NODE) {
+                            cout << "jump table full [2]" << endl;
+                            exit(-2);
+                        }
+                    #endif
                 }
-                //TODO, maybe in here can get path3 directly
             }
+            //TODO, maybe in here can get path3 directly
+            
 
         }
 
