@@ -940,6 +940,8 @@ int init_jump(int_std head,
                             jump_table[table_idx] = new BackwardPath[jump_table_size[table_idx] * 2];
                             memcpy(jump_table[table_idx], tmp_jump_table, sizeof(BackwardPath) * jump_table_size[table_idx]);
                             jump_table_size[table_idx] *= 2;
+                            //cout << jump_table_size[table_idx] << endl;
+                            delete[] tmp_jump_table;
                         }
                         #ifdef TEST
                             if (status2len(jump_status[mid]) > jump_table_size[table_idx]) {
