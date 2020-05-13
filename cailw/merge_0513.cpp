@@ -104,7 +104,7 @@ const int THREAD_NUM            = 4;
 const int WRITER_THREAD_NUM     = 4;
 const int MAX_ID_STRING_LENGTH  = 12; //log(2 ** 32) + 1
 const int ID_HASH_TABLE_SIZE    = 12345701; // MAX_ID_NUM * 2 * 7, bigger is better;
-const int JUMP_TABLE_SIZE    = 16384;
+const int JUMP_TABLE_SIZE       = 16384;
 const int JUMP_PATH_PER_NODE    = 1024;
 const int second_coef           = 256;
 
