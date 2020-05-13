@@ -105,7 +105,10 @@ const int JUMP_PATH_PER_NODE    = 1024;
 
 int_std real_ans[THREAD_NUM][PATH_LENGTH_NUM][MAX_ANS_NUM * MAX_PATH_LENGTH];
 int_std real_ans_size[THREAD_NUM][PATH_LENGTH_NUM];
-int_std ans_pool[PATH_LENGTH_NUM][MAX_ID_NUM];
+struct {
+	int ans_num;
+	int ans_len;
+} ans_pool[PATH_LENGTH_NUM][MAX_ID_NUM];
 
 int_std ans_len[MAX_ANS_NUM];
 int_std ans_head[MAX_ANS_NUM];
@@ -339,8 +342,6 @@ int in_degree[MAX_ID_NUM];
 int out_degree[MAX_ID_NUM];
 char id_str[MAX_ID_NUM][((MAX_ID_STRING_LENGTH) / 8 + 1) * 8];
 char id_len[MAX_ID_NUM];
-uint_byte global_node_status[THREAD_NUM][MAX_ID_NUM];
-
 
 inline 
 void reid(){
@@ -360,44 +361,6 @@ void reid(){
     }
 }
 
-void loop_check(int graph_size) {
-    vector<int_std> delete_list;
-    delete_list.reserve(graph_size);
-
-    for (int i = 0; i < graph_size; i++) {
-        if (in_degree[i] == 0 || out_degree[i] == 0) {
-            delete_list.push_back(i);
-        }
-    }
-    vector<int_std>::iterator p = delete_list.begin();
-    while (p != delete_list.end()) {
-        int_std v = *p;
-        p++;
-
-        global_node_status[0][v] = global_node_status[1][v] = global_node_status[2][v] = global_node_status[3][v] = 2;
-
-        auto v_start = node_info[v].first;
-        auto v_end = node_info[v].last;
-        for (int itr_v = v_start; itr_v < v_end; itr_v+=2) {
-            int_std u = graph[itr_v];
-            in_degree[u]--;
-            if (in_degree[u] == 0 && global_node_status[0][u] == 0) {
-                delete_list.push_back(u);
-            }
-        }
-
-        v_start = rev_node_info[v].first;
-        v_end = rev_node_info[v].last;
-        for (int itr_v = v_start; itr_v < v_end; itr_v+=2) {
-            int_std u = rev_graph[itr_v];
-            out_degree[u]--;
-            if (out_degree[u] == 0 && global_node_status[0][u] == 0) {
-                delete_list.push_back(u);
-            }
-        }
-    }
-}
-
 void preprocess(){
     reid();
 
@@ -408,8 +371,6 @@ void preprocess(){
     graph_node_edge_init(rev_graph, rev_node_info, in_degree, ids_size);
     graph_node_edge_add<RevData>(rev_graph, rev_node_info, tD, tD_size);
     graph_node_edge_sort<RevEdgeData>(rev_graph, rev_node_info, ids_size);
-
-    loop_check(ids_size);
 }
 
 /////////////////////////////////////////////////
@@ -431,10 +392,10 @@ struct BackwardPath{
     }
 };
 
-
+uint_byte used_pool[THREAD_NUM][MAX_ID_NUM];
 uint_byte handle_thread_id[MAX_ID_NUM];
-BackwardPath ALIGNED global_jump_table[THREAD_NUM][JUMP_TABLE_SIZE][JUMP_PATH_PER_NODE];
 int global_jump_status[THREAD_NUM][MAX_ID_NUM];
+BackwardPath ALIGNED global_jump_table[THREAD_NUM][JUMP_TABLE_SIZE][JUMP_PATH_PER_NODE];
 
 #define idx2status(n) ((n) << 16)
 #define status2idx(n) ((n) >> 16)
@@ -460,15 +421,22 @@ void quick_jump(int_std head,
             and amount_check(mid_amount, path.first_amount)
             and amount_check(path.second_amount, head_amount)){
 
-            ++ans_pool[idx][head];
-            const int node_list_len = node_list[0];
+        	int length = 0;
+            ++ans_pool[idx][head].ans_num;
+            const int node_list_len = node_list[0];             
             real_a[real_a_len++] = head;
+            length += id_len[head];
             for (int i = 1; i <= node_list_len; ++i){
                 real_a[real_a_len++] = node_list[i];
+                length += id_len[node_list[i]];
             }
             real_a[real_a_len++] = mid;
+            length += id_len[mid];
             real_a[real_a_len++] = path.first;
+            length += id_len[path.first];
             real_a[real_a_len++] = path.second;
+            length += id_len[path.second];
+            ans_pool[idx][head].ans_len += length;
         }
     }
 }
@@ -483,11 +451,16 @@ void head_quick_jump(int_std head,
     auto & real_a_len = real_ans_size[thread_id][idx];
     for (int j = 0; j < jump_length; j++){
         auto path = jump[j];
-        ++ans_pool[idx][head];
+        int length = 0;
+        ++ans_pool[0][head].ans_num;
         real_a[real_a_len] = head;
+        length += id_len[head];
         real_a[real_a_len+1] = path.first;
+        length += id_len[path.first];
         real_a[real_a_len+2] = path.second;
+        length += id_len[path.second];
         real_a_len += 3;
+        ans_pool[0][head].ans_len += length;
     }
 }
 
@@ -505,31 +478,27 @@ void head_quick_jump(int_std head,
 
 #define TRY_QUICK_JUMP(head, v, amount_head) if (jump_status[v] > 0)\
                 quick_jump(head, v, jump_table[status2idx(jump_status[v])], status2len(jump_status[v]), \
-                    node_list, node_status, thread_id, amount_##v, amount_head)
+                    node_list, used, thread_id, amount_##v, amount_head)
 
 #define IMPOSSIBLE(x) if ((amount_##x > 5ll * node_info[x].max) or (3ll * amount_##x < node_info[x].min)) continue
 
 #define ALWAYS(x) if ((amount_##x <= 5ll * node_info[x].min) and (3ll * amount_##x >= node_info[x].max)) always_check_##x = 1; else always_check_##x = 0
 
-#define STATUS_CHECK(x) if (node_status[x] != 0) continue
+
 
 #define HANDLE_WITHOUT_CHECK(x, z)\
-                GET_NODE_INFO(x);\
-                STATUS_CHECK(x);\
                 IMPOSSIBLE(x);\
                 ALWAYS(x);\
-                node_status[x] = 1;\
+                used[x] = 1;\
                 TRY_QUICK_JUMP(head, x, amount_u);\
                 node_list[++node_list_len] = x;\
                 EDGE_ITR_INIT(z, x)
 
 #define HANDLE_WITH_CHECK(x, y, z)\
-                GET_NODE_INFO(x);\
-                STATUS_CHECK(x);\
                 if (!amount_check(amount_##y, amount_##x)) continue;\
                 IMPOSSIBLE(x);\
                 ALWAYS(x);\
-                node_status[x] = 1;\
+                used[x] = 1;\
                 TRY_QUICK_JUMP(head, x, amount_u);\
                 node_list[++node_list_len] = x;\
                 EDGE_ITR_INIT(z, x)
@@ -540,7 +509,7 @@ void head_quick_jump(int_std head,
                     if (!amount_check(amount_k, amount_l)) continue;\
                     if (unlikely(jump_status[l] > 0 and l != u and l != v)) {\
                         quick_jump(head, l, jump_table[status2idx(jump_status[l])], status2len(jump_status[l]),\
-                            node_list, node_status, thread_id, amount_l, amount_u);\
+                            node_list, used, thread_id, amount_l, amount_u);\
                     }\
                 }        
 
@@ -549,16 +518,16 @@ void head_quick_jump(int_std head,
                     GET_NODE_INFO(l);\
                     if (unlikely(jump_status[l] > 0 and l != u and l != v)) {\
                         quick_jump(head, l, jump_table[status2idx(jump_status[l])], status2len(jump_status[l]),\
-                            node_list, node_status, thread_id, amount_l, amount_u);\
+                            node_list, used, thread_id, amount_l, amount_u);\
                     }\
                 }                       
 
-#define ROLL_BACK(x, y) node_status[x] = 0; node_list_len = y
+#define ROLL_BACK(x, y) used[x] = 0; node_list_len = y
 
 void search(int_std head,
             BackwardPath (*jump_table)[JUMP_PATH_PER_NODE],
-            int * jump_status,           
-            uint_byte * node_status,
+            int * jump_status,
+            uint_byte * used,
             int_std thread_id,
             NodeInfo * node_info){
     if (jump_status[head] > 0) head_quick_jump(head, jump_table[status2idx(jump_status[head])], status2len(jump_status[head]), thread_id);
@@ -568,12 +537,16 @@ void search(int_std head,
     EDGE_ITR_INIT(u, head);
     int always_check_u, always_check_v, always_check_k;
     for (;itr_u < itr_end_u; itr_u+=2){
+        GET_NODE_INFO(u);
         HANDLE_WITHOUT_CHECK(u, v);
         if (always_check_u == 1) {
             for (;itr_v < itr_end_v; itr_v+=2){
+                GET_NODE_INFO(v);
                 HANDLE_WITHOUT_CHECK(v, k);
                 if (always_check_v == 1) {
                     for (;itr_k < itr_end_k; itr_k+=2){
+                        GET_NODE_INFO(k);
+                        if (k == u) continue;
                         HANDLE_WITHOUT_CHECK(k, l);
                         if (always_check_k == 1) {HANDLE_L_WITHOUT_CHECK;} else {HANDLE_L_WITH_CHECK;}
                         ROLL_BACK(k, 2);
@@ -581,6 +554,8 @@ void search(int_std head,
                 }
                 else {
                     for (;itr_k < itr_end_k; itr_k+=2){
+                        GET_NODE_INFO(k);
+                        if (k == u) continue;
                         HANDLE_WITH_CHECK(k, v, l);
                         if (always_check_k == 1) {HANDLE_L_WITHOUT_CHECK;} else {HANDLE_L_WITH_CHECK;}
                         ROLL_BACK(k, 2);
@@ -591,9 +566,12 @@ void search(int_std head,
         }
         else {
             for (;itr_v < itr_end_v; itr_v+=2){
+                GET_NODE_INFO(v);
                 HANDLE_WITH_CHECK(v, u, k);
                 if (always_check_v == 1) {
                     for (;itr_k < itr_end_k; itr_k+=2){
+                        GET_NODE_INFO(k);
+                        if (k == u) continue;
                         HANDLE_WITHOUT_CHECK(k, l);
                         if (always_check_k == 1) {HANDLE_L_WITHOUT_CHECK;} else {HANDLE_L_WITH_CHECK;}
                         ROLL_BACK(k, 2);
@@ -601,6 +579,8 @@ void search(int_std head,
                 }
                 else {
                     for (;itr_k < itr_end_k; itr_k+=2){
+                        GET_NODE_INFO(k);
+                        if (k == u) continue;
                         HANDLE_WITH_CHECK(k, v, l);
                         if (always_check_k == 1) {HANDLE_L_WITHOUT_CHECK;} else {HANDLE_L_WITH_CHECK;}
                         ROLL_BACK(k, 2);
@@ -617,11 +597,9 @@ void search(int_std head,
 
 #define ALWAYS_JUMP(u) if ((rev_node_info[u].max <= 5ll * amount_##u) and (3ll * rev_node_info[u].min >= amount_##u)) always_check_##u = 1; else always_check_##u = 0
 
-
 int init_jump(int_std head, 
             BackwardPath (*jump_table)[JUMP_PATH_PER_NODE],
             int * jump_status,
-            uint_byte * node_status,
             vector<int_std> & init_node){
     int jump_num = 0;
     int always_check_u, always_check_v;
@@ -632,7 +610,6 @@ int init_jump(int_std head,
 
         const auto u = rev_graph[itr_u];
         const auto amount_u = rev_graph[itr_u + 1];
-        STATUS_CHECK(u);
         IMPOSSIBLE_JUMP(u);
         ALWAYS_JUMP(u);
 
@@ -643,7 +620,6 @@ int init_jump(int_std head,
             const auto v = rev_graph[itr_v];
             const auto amount_v = rev_graph[itr_v + 1];
             if (always_check_u == 0 && !amount_check(amount_v, amount_u)) continue;
-            STATUS_CHECK(v);
             IMPOSSIBLE_JUMP(v);
             ALWAYS_JUMP(v);
 
@@ -653,7 +629,6 @@ int init_jump(int_std head,
                 const auto mid = rev_graph[itr_mid];
                 const auto amount_mid = rev_graph[itr_mid + 1];
                 if (always_check_v == 0 && !amount_check(amount_mid, amount_v)) continue;
-                STATUS_CHECK(mid);
                 if (mid != u){
                     if (head == mid && !amount_check(amount_u, amount_mid)) continue;
                     if (jump_status[mid] == 0){
@@ -700,14 +675,14 @@ void run_job(int_std thread_id, int_std graph_size){
     auto start = chrono::steady_clock::now();
     #endif
 
-    auto & status_t = global_node_status[thread_id];
+    auto & used = used_pool[thread_id];
     for (int t = 0; t < graph_size; ++t){
         int i = handle_num += 1;
         if (i >= graph_size){break;}
-        const int jump_num = init_jump(i, jump_table, jump_status, status_t, init_node);
+        const int jump_num = init_jump(i, jump_table, jump_status, init_node);
         handle_thread_id[i] = thread_id;
         if (jump_num > 0){
-            search(i, jump_table, jump_status, status_t, thread_id, thread_node_info);
+            search(i, jump_table, jump_status, used, thread_id, thread_node_info);
             for (const auto & mid : init_node){
                 jump_status[mid] = 0;
             }
@@ -736,65 +711,24 @@ inline
 void write_count(const int graph_size, int_std & total_ans, int_std & out_size){
     total_ans = 0;
     out_size = 0;
-    for (int len_t = MIN_PATH_LENGTH; len_t < MAX_PATH_LENGTH; ++len_t){
+    int_std start_point_pool[THREAD_NUM][PATH_LENGTH_NUM] = {0};
+    for (int len_t = MIN_PATH_LENGTH; len_t <= MAX_PATH_LENGTH; ++len_t){
         const int len = len_t;
         const auto idx = len - MIN_PATH_LENGTH;
-        const auto & ans = ans_pool[idx];
-        int_std start_point_pool[THREAD_NUM][PATH_LENGTH_NUM] = {0};
         for (int i = 0; i < graph_size; ++i){
-            if (ans[i] == 0) {continue;}
+            if (ans_pool[idx][i].ans_num == 0) {continue;}
             int_std thread_id = handle_thread_id[i];
             auto & start_point = start_point_pool[thread_id][idx];
             ans_head[ans_len_size] = i;
             ans_write_addr[ans_len_size] = out_size;
             ans_start_point[ans_len_size] = start_point;
+            start_point += ans_pool[idx][i].ans_num * len;
             ans_len[ans_len_size++] = len;
-            total_ans += ans[i];
-            const int_std end_point = start_point + ans[i] * len;
-            const auto & real_a = real_ans[thread_id][idx];
-
-            for (; start_point < end_point; start_point += len){
-                out_size += id_len[real_a[start_point]] + len;
-                out_size += id_len[real_a[start_point + 1]];
-                out_size += id_len[real_a[start_point + 2]];
-                const int tmp_end_point = start_point + len;
-                for (unsigned int i = start_point + 3; i < tmp_end_point; ++i){
-                    out_size += id_len[real_a[i]];
-                }
-                //++out_size;
-            }
+            total_ans += ans_pool[idx][i].ans_num;
+            out_size += ans_pool[idx][i].ans_len + ans_pool[idx][i].ans_num * len;
         }
     }
 
-    {
-        const int len = MAX_PATH_LENGTH;
-        const auto idx = len - MIN_PATH_LENGTH;
-        const auto & ans = ans_pool[idx];
-        int_std start_point_pool[THREAD_NUM][PATH_LENGTH_NUM] = {0};
-        for (int i = 0; i < graph_size; ++i){
-            if (ans[i] == 0) {continue;}
-            int_std thread_id = handle_thread_id[i];
-            auto & start_point = start_point_pool[thread_id][idx];
-            ans_head[ans_len_size] = i;
-            ans_write_addr[ans_len_size] = out_size;
-            ans_start_point[ans_len_size] = start_point;
-            ans_len[ans_len_size++] = len;
-            total_ans += ans[i];
-            const int_std end_point = start_point + ans[i] * len;
-            out_size += ans[i] * len;
-            const auto & real_a = real_ans[thread_id][idx];
-            for (; start_point < end_point; start_point += len){
-                out_size += id_len[real_a[start_point + 0]];
-                out_size += id_len[real_a[start_point + 1]];
-                out_size += id_len[real_a[start_point + 2]];
-                out_size += id_len[real_a[start_point + 3]];
-                out_size += id_len[real_a[start_point + 4]];
-                out_size += id_len[real_a[start_point + 5]];
-                out_size += id_len[real_a[start_point + 6]];
-                //++out_size;
-            }
-        }
-    }
     out_size += to_string(total_ans).length() + 1;
 }
 
@@ -811,12 +745,15 @@ void mmap_multi_thread_writer(const int_std writer_id,
                               char * out_buff){
     //int_std start_point_pool[THREAD_NUM][ANS_LENGTH_NUM] = {0};
     //int_std end_point_pool[THREAD_NUM][ANS_LENGTH_NUM] = {0};
-    auto beg_t = clock();
+    //auto beg_t = clock();
     for (int t = 0; t < ans_len_size; ++t){
         int aidx_begin = write_num += WRITE_TASK_BATCH_SIZE;
         int aidx_end = aidx_begin + WRITE_TASK_BATCH_SIZE;
+        if (aidx_begin >= ans_len_size)
+            return;
+        else if (aidx_end > ans_len_size) 
+            aidx_end = ans_len_size;
         for (int aidx = aidx_begin; aidx < aidx_end; ++aidx){
-            if (aidx >= ans_len_size) {return;}
             const int head = ans_head[aidx];
             const int len = ans_len[aidx];
             const auto idx = len - MIN_PATH_LENGTH;
@@ -824,7 +761,7 @@ void mmap_multi_thread_writer(const int_std writer_id,
             int_std start_point = ans_start_point[aidx];
             int_std thread_id = handle_thread_id[head];
             const auto & real_a = real_ans[thread_id][idx];
-            const int_std end_point = start_point + ans_pool[idx][head] * len;
+            const int_std end_point = start_point + ans_pool[idx][head].ans_num * len;
             for (;start_point < end_point; start_point += len){
                 const int a = real_a[start_point];
                 memcpy(out_buff + write_offset, id_str[a] + 1, id_str[a][0]);
