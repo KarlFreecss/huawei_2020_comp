@@ -239,15 +239,10 @@ NodeInfo ALIGNED global_node_info[MAX_ID_NUM];
 int_std ALIGNED rev_graph[MAX_GRAPH_SIZE];
 NodeInfo ALIGNED rev_node_info[MAX_ID_NUM];
 
-Data tD[MAX_DATA_RECORD_SIZE];
-int tD_size;
+int rebuild_table[MAX_ID_NUM];
 
 inline
-void graph_node_edge_init(int_std * graph, NodeInfo * node_info, int * nums, int valid_graph_size, int * split_point){
-    int split_point_array_idx = 1;
-    int split_block_require = tD_size / THREAD_NUM + 1;
-    int split_require_target = split_block_require;
-    int total_num = 0;
+void graph_node_edge_init(int_std * graph, NodeInfo * node_info, int * nums, int valid_graph_size){
     for (int idx = 1; idx < valid_graph_size; ++idx){
     // In fact, there should be not num equal to zero.
         int num = nums[idx - 1];
@@ -256,16 +251,9 @@ void graph_node_edge_init(int_std * graph, NodeInfo * node_info, int * nums, int
         } else {
             int store_size = ((2 * num - 1) / SINGLE_CACHE_LINE_EDGE_NUM + 1) * SINGLE_CACHE_LINE_EDGE_NUM;
             node_info[idx].first = node_info[idx - 1].first + store_size;
-            if (total_num += num){
-                if (total_num >= split_require_target){
-                    split_point[split_point_array_idx++] = idx;
-                    split_require_target += split_block_require;
-                }
-            }
         }
         node_info[idx].last = node_info[idx].first;
     }
-    split_point[THREAD_NUM] = valid_graph_size;
 }
 
 template<class T>
@@ -306,6 +294,10 @@ void graph_node_edge_sort(int_std * graph, NodeInfo * node_info, int valid_graph
         if (last - first > 2) sort((T *)(graph + first), (T *)(graph + last));
     }
 }
+
+Data tD[MAX_DATA_RECORD_SIZE];
+int tD_size;
+
 
 Data partial_tD[THREAD_NUM][MAX_DATA_RECORD_SIZE];
 int partial_tD_size[THREAD_NUM];
@@ -427,6 +419,7 @@ void merge_partial_ids(){
     int partial_ids_idx[THREAD_NUM] = {0};
     for (;;){
         int best_partial_idx = -1;
+        int tmp_best_idx_1 = -1, tmp_best_idx_2 = -1;
         for (int i = 0; i < THREAD_NUM; ++i){
             if (partial_ids_idx[i] < partial_ids_size[i]) {
                 if (best_partial_idx == -1) best_partial_idx = i;
@@ -479,19 +472,21 @@ char ALIGNED id_str_r[MAX_ID_NUM][((MAX_ID_STRING_LENGTH) / 8 + 1) * 8];
 char ALIGNED id_str_s[MAX_ID_NUM][((MAX_ID_STRING_LENGTH) / 8 + 1) * 8];
 char ALIGNED id_len[MAX_ID_NUM];
 
+int true_id[MAX_ID_NUM];
 void id_assign(){
     for (int i = 0; i < ids_size; ++i){
         hash_mapping(ids[i], i, id_hash_table_flag, id_hash_table_key, id_hash_table_value);
-        const string str = to_string(ids[i]);
-        id_len[i] = str.length() + 1;
-        
-        id_str_r[i][0] = str.length() + 1;
-        memcpy(id_str_r[i] + 1, str.c_str(), id_len[i]);
-        id_str_r[i][id_len[i]] = '\n';
+        true_id[i] = ids[i];
+        //const string str = to_string(ids[i]);
+        //id_len[i] = str.length() + 1;
+        //
+        //id_str_r[i][0] = str.length() + 1;
+        //memcpy(id_str_r[i] + 1, str.c_str(), id_len[i]);
+        //id_str_r[i][id_len[i]] = '\n';
 
-        id_str_s[i][0] = str.length() + 1;
-        memcpy(id_str_s[i] + 1, str.c_str(), id_len[i]);
-        id_str_s[i][id_len[i]] = ',';
+        //id_str_s[i][0] = str.length() + 1;
+        //memcpy(id_str_s[i] + 1, str.c_str(), id_len[i]);
+        //id_str_s[i][id_len[i]] = ',';
     }
 }
 
@@ -527,73 +522,114 @@ void multi_thread_reid(){
     }
 }
 
-//inline 
-void reid(){
-    #ifdef REQUIRE_DEBUG_INFO
-    auto start = chrono::steady_clock::now();
-    #endif
-
-    sort(ids, ids + ids_size);
-
-    #ifdef REQUIRE_DEBUG_INFO
-    {
-        auto end = std::chrono::steady_clock::now();
-        chrono::duration<double> elapsed_seconds = end-start;
-        cout << "reid : after ids_sort time: " << elapsed_seconds.count() << "s\n";
-    }
-    #endif
-
-    id_assign();
-
-    //for (int i = 0; i < ids_size; ++i){
-    //    hash_mapping(ids[i], i, id_hash_table_flag, id_hash_table_key, id_hash_table_value);
-    //    const string str = to_string(ids[i]);
-    //    id_len[i] = str.length() + 1;
-    //    
-    //    id_str_r[i][0] = str.length() + 1;
-    //    memcpy(id_str_r[i] + 1, str.c_str(), id_len[i]);
-    //    id_str_r[i][id_len[i]] = '\n';
-
-    //    id_str_s[i][0] = str.length() + 1;
-    //    memcpy(id_str_s[i] + 1, str.c_str(), id_len[i]);
-    //    id_str_s[i][id_len[i]] = ',';
-    //}
-    #ifdef REQUIRE_DEBUG_INFO
-    {
-        auto end = std::chrono::steady_clock::now();
-        chrono::duration<double> elapsed_seconds = end-start;
-        cout << "reid : after assign id time: " << elapsed_seconds.count() << "s\n";
-    }
-    #endif
-
-    //TODO: Multi Thread!
-    for (int i = 0; i < tD_size; ++i){
-        auto & d = tD[i];
-        d.a = hash_query(d.a, id_hash_table_flag, id_hash_table_key, id_hash_table_value);
-        d.b = hash_query(d.b, id_hash_table_flag, id_hash_table_key, id_hash_table_value);
-        out_degree[d.a] += 1;
-        in_degree[d.b] += 1;
-    }
-
-    #ifdef REQUIRE_DEBUG_INFO
-    {
-        auto end = std::chrono::steady_clock::now();
-        chrono::duration<double> elapsed_seconds = end-start;
-        cout << "reid : after fixed id time: " << elapsed_seconds.count() << "s\n";
-    }
-    #endif
-}
-
-void build_rev_graph(int * split_point){
-    graph_node_edge_init(rev_graph, rev_node_info, in_degree, ids_size, split_point);
+void build_rev_graph(){
+    graph_node_edge_init(rev_graph, rev_node_info, in_degree, ids_size);
     graph_node_edge_add<RevData>(rev_graph, rev_node_info, tD, tD_size);
     graph_node_edge_sort<RevEdgeData>(rev_graph, rev_node_info, ids_size);
 }
 
-void build_graph(int * split_point){
-    graph_node_edge_init(graph, global_node_info, out_degree, ids_size, split_point);
+void build_graph(){
+    graph_node_edge_init(graph, global_node_info, out_degree, ids_size);
     graph_node_edge_add<Data>(graph, global_node_info, tD, tD_size);
     graph_node_edge_sort<EdgeData>(graph, global_node_info, ids_size);
+}
+
+void loop_check(int graph_size) {
+    vector<int_std> delete_list;
+    delete_list.reserve(graph_size);
+
+    for (int i = 0; i < graph_size; i++) {
+        if (in_degree[i] == 0 || out_degree[i] == 0) {
+            delete_list.push_back(i);
+        }
+    }
+    vector<int_std>::iterator p = delete_list.begin();
+    while (p != delete_list.end()) {
+        int_std v = *p;
+        p++;
+
+        rebuild_table[v] = -1;
+
+        auto v_start = global_node_info[v].first;
+        auto v_end = global_node_info[v].last;
+        for (int itr_v = v_start; itr_v < v_end; itr_v+=2) {
+            int_std u = graph[itr_v];
+            --in_degree[u];
+            if (in_degree[u] == 0 && out_degree[u] > 0) {
+                delete_list.push_back(u);
+            }
+        }
+
+        v_start = rev_node_info[v].first;
+        v_end = rev_node_info[v].last;
+        for (int itr_v = v_start; itr_v < v_end; itr_v+=2) {
+            int_std u = rev_graph[itr_v];
+            --out_degree[u];
+            if (out_degree[u] == 0 && in_degree[u] > 0) {
+                delete_list.push_back(u);
+            }
+        }
+    }
+}
+
+int id_resign(int graph_size) {
+    int new_last = 0;
+    for (int i = 0; i < graph_size; i++) {
+        if (rebuild_table[i] >= 0) {
+            global_node_info[new_last] = global_node_info[i];
+            rev_node_info[new_last] = rev_node_info[i];
+            rebuild_table[i] = new_last;
+            new_last++;
+        }
+    }
+    return new_last;
+}
+
+int valid_edge_num_pool[4];
+void graph_rebuild(int thread_id, int * g, NodeInfo * info, int begin_idx, int end_idx) {
+    int valid_edge_num = 0;
+    for (int i = begin_idx; i < end_idx; i++) {
+        int new_last = info[i].first;
+        for (int j = info[i].first; j < info[i].last; j+=2) {
+            if (rebuild_table[g[j]] >= 0) {
+                g[new_last] = rebuild_table[g[j]];
+                g[new_last + 1] = g[j + 1];
+                new_last += 2;
+            }               
+        }
+        info[i].last = new_last;
+        valid_edge_num += new_last - info[i].first;
+    }
+    valid_edge_num_pool[thread_id] = valid_edge_num;
+}
+
+int build_str(int begin_idx, int end_idx) {
+    for (int i = begin_idx; i < end_idx; ++i){
+        int id = true_id[i];//hash_query(ids[i], id_hash_table_flag, id_hash_table_key, id_hash_table_value);
+        int new_id = rebuild_table[i];
+        if (new_id >= 0) {
+            const string str = to_string(id);
+            id_len[new_id] = str.length() + 1;
+        
+            id_str_r[new_id][0] = str.length() + 1;
+            memcpy(id_str_r[new_id] + 1, str.c_str(), id_len[new_id]);
+            id_str_r[new_id][id_len[new_id]] = '\n';
+
+            id_str_s[new_id][0] = str.length() + 1;
+            memcpy(id_str_s[new_id] + 1, str.c_str(), id_len[new_id]);
+            id_str_s[new_id][id_len[new_id]] = ',';
+        }
+    }
+}
+
+int rebuild_thread(int thread_id, int after_delete) {
+    int begin_inx = after_delete * thread_id / THREAD_NUM;
+    int end_idx = after_delete * (thread_id + 1) / THREAD_NUM;
+    graph_rebuild(thread_id, graph, global_node_info, begin_inx, end_idx);
+    graph_rebuild(thread_id, rev_graph, rev_node_info, begin_inx, end_idx);
+    begin_inx = ids_size * thread_id / THREAD_NUM;
+    end_idx = ids_size * (thread_id + 1) / THREAD_NUM;
+    build_str(begin_inx, end_idx);
 }
 
 void build_second_graph(int head_ids_begin,
@@ -658,7 +694,7 @@ void merge_second_graph(int ids_block_size, int ids_size, int * split_point){
         int thread_id = t;
         int tmp_node_info_count = partial_node_info_count[thread_id];
         int tmp_node_info_second_count = partial_node_info_second_count[thread_id];
-        int ids_offset_end = split_point[t+1];
+        int ids_offset_end = split_point[t+1]; //ids_offset + ids_block_size;
         if (ids_offset_end > ids_size) ids_offset_end = ids_size;
         threads[thread_id] = thread(merge_second_graph_imp, thread_id, ids_offset, ids_offset_end, node_info_count, node_info_second_count, tmp_node_info_count, tmp_node_info_second_count);
         ids_offset = ids_offset_end;
@@ -668,8 +704,6 @@ void merge_second_graph(int ids_block_size, int ids_size, int * split_point){
     for (int t = 0; t < THREAD_NUM; ++t) threads[t].join();
 }
 
-int ALIGNED split_point[THREAD_NUM + 1] = {0};
-int ALIGNED tmp_split_point[THREAD_NUM + 1] = {0};
 void preprocess(){
     #ifdef REQUIRE_DEBUG_INFO
     auto start = chrono::steady_clock::now();
@@ -687,9 +721,10 @@ void preprocess(){
     #endif
 
     thread thread0;
-    thread0 = thread(build_rev_graph, tmp_split_point);
-    build_graph(split_point);
+    thread0 = thread(build_rev_graph);
+    build_graph();
     //build_rev_graph();
+    thread0.join();
 
     #ifdef REQUIRE_DEBUG_INFO
     {
@@ -699,11 +734,52 @@ void preprocess(){
     }
     #endif
 
-    thread0.join();
+    loop_check(ids_size);
 
-    thread threads[THREAD_NUM];
+    #ifdef REQUIRE_DEBUG_INFO
+    {
+        auto end = std::chrono::steady_clock::now();
+        chrono::duration<double> elapsed_seconds = end-start;
+        cout << "Preprocess : After LOOP CHECK Time: " << elapsed_seconds.count() << "s\n";
+    }
+    #endif
+
+    int after_delete = id_resign(ids_size); // in_degree and out_degree are not changed
+    
+    thread threads[THREAD_NUM - 1];
+    for (int i = 0; i < THREAD_NUM - 1; ++i){
+        threads[i] = thread(rebuild_thread, i, after_delete);
+    }
+    graph_rebuild(THREAD_NUM - 1, graph, global_node_info, after_delete * (THREAD_NUM - 1) / THREAD_NUM, after_delete);
+    graph_rebuild(THREAD_NUM - 1, rev_graph, rev_node_info, after_delete * (THREAD_NUM - 1) / THREAD_NUM, after_delete);
+    build_str(ids_size * (THREAD_NUM - 1) / THREAD_NUM, ids_size);
+    for (int i = 0; i < THREAD_NUM - 1; ++i) threads[i].join();
+    
+    #ifdef REQUIRE_DEBUG_INFO
+        cout << "deleted " << ids_size - after_delete << " of " << ids_size << " nodes" << endl;
+        auto end = std::chrono::steady_clock::now();
+        chrono::duration<double> elapsed_seconds = end-start;
+        cout << "Preprocess : Delete Node Time: " << elapsed_seconds.count() << "s\n";
+    #endif
+    ids_size = after_delete;
+    int total_valid_edge_num = valid_edge_num_pool[0] + valid_edge_num_pool[1] + valid_edge_num_pool[2] + valid_edge_num_pool[3];
+    int require_num_per_block = total_valid_edge_num / THREAD_NUM + 1;
+    int require_target = require_num_per_block;
+    int split_point[THREAD_NUM + 1] = {0};
+    int total_num = 0;
+    int split_point_array_idx = 1;
+    for (int i = 0; i < ids_size; ++i){
+        int num = global_node_info[i].last - global_node_info[i].first;
+        total_num += num;
+        if (total_num >= require_target) {
+            split_point[split_point_array_idx++] = i;
+            require_target += require_num_per_block;
+        }
+    }
+    split_point[THREAD_NUM] = ids_size;
+
     int ids_block_size = ids_size / THREAD_NUM + 1;
-    for (int i = 0; i < THREAD_NUM; ++i){
+    for (int i = 0; i < THREAD_NUM - 1; ++i){
         const int thread_id = i;
         int head_ids_begin = split_point[i];//(i) * ids_block_size;
         int head_ids_end = split_point[i+1];//(i + 1) * ids_block_size;
@@ -713,15 +789,9 @@ void preprocess(){
                             head_ids_end,
                             thread_id);
     }
-    for (int i = 0; i < THREAD_NUM; ++i) threads[i].join();
-
-    #ifdef REQUIRE_DEBUG_INFO
-    {
-        auto end = std::chrono::steady_clock::now();
-        chrono::duration<double> elapsed_seconds = end-start;
-        cout << "Preprocess Before Second Graph Merge Time: " << elapsed_seconds.count() << "s\n";
-    }
-    #endif
+    //build_second_graph((THREAD_NUM - 1) * ids_block_size, ids_size, THREAD_NUM - 1);
+    build_second_graph(split_point[THREAD_NUM - 1], split_point[THREAD_NUM], THREAD_NUM - 1);
+    for (int i = 0; i < THREAD_NUM - 1; ++i) threads[i].join();
 
     merge_second_graph(ids_block_size, ids_size, split_point);
 
@@ -1060,7 +1130,7 @@ void mmap_multi_thread_writer(const int_std writer_id,
                               char * out_buff){
     //int_std start_point_pool[THREAD_NUM][ANS_LENGTH_NUM] = {0};
     //int_std end_point_pool[THREAD_NUM][ANS_LENGTH_NUM] = {0};
-    for (int t = 0; t < ans_len_size; ++t){
+    for(;;){
         int aidx_begin = write_num += WRITE_TASK_BATCH_SIZE;
         int aidx_end = aidx_begin + WRITE_TASK_BATCH_SIZE;
         if (aidx_begin >= ans_len_size) {return;}

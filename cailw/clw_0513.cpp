@@ -86,6 +86,7 @@ struct NodeInfo{
     int first;
     int last;
 };
+
 //#define amount_check(X,Y) (((X)<=5ll*(Y))&&((Y)<=3ll*(X)))
 inline
 bool amount_check(int X, int Y){
@@ -235,8 +236,15 @@ NodeInfo ALIGNED global_node_info[MAX_ID_NUM];
 int_std ALIGNED rev_graph[MAX_GRAPH_SIZE];
 NodeInfo ALIGNED rev_node_info[MAX_ID_NUM];
 
+Data tD[MAX_DATA_RECORD_SIZE];
+int tD_size;
+
 inline
-void graph_node_edge_init(int_std * graph, NodeInfo * node_info, int * nums, int valid_graph_size){
+void graph_node_edge_init(int_std * graph, NodeInfo * node_info, int * nums, int valid_graph_size, int * split_point){
+    int split_point_array_idx = 1;
+    int split_block_require = tD_size / THREAD_NUM + 1;
+    int split_require_target = split_block_require;
+    int total_num = 0;
     for (int idx = 1; idx < valid_graph_size; ++idx){
     // In fact, there should be not num equal to zero.
         int num = nums[idx - 1];
@@ -245,9 +253,16 @@ void graph_node_edge_init(int_std * graph, NodeInfo * node_info, int * nums, int
         } else {
             int store_size = ((2 * num - 1) / SINGLE_CACHE_LINE_EDGE_NUM + 1) * SINGLE_CACHE_LINE_EDGE_NUM;
             node_info[idx].first = node_info[idx - 1].first + store_size;
+            if (total_num += num){
+                if (total_num >= split_require_target){
+                    split_point[split_point_array_idx++] = idx;
+                    split_require_target += split_block_require;
+                }
+            }
         }
         node_info[idx].last = node_info[idx].first;
     }
+    split_point[THREAD_NUM] = valid_graph_size;
 }
 
 template<class T>
@@ -289,18 +304,14 @@ void graph_node_edge_sort(int_std * graph, NodeInfo * node_info, int valid_graph
     }
 }
 
-Data tD[MAX_DATA_RECORD_SIZE];
-int tD_size;
-
-
 Data partial_tD[THREAD_NUM][MAX_DATA_RECORD_SIZE];
 int partial_tD_size[THREAD_NUM];
 
 inline
 int_std get_num(char buff[], int_std & used_len){
-    while (buff[used_len] < '0' or buff[used_len] > '9') ++used_len;
+    while (buff[used_len] < '0') ++used_len;
     int_std ret = buff[used_len++] - '0';
-    while (buff[used_len] >= '0' && buff[used_len] <= '9') {
+    while (buff[used_len] >= '0') {
         ret = ret * 10 + buff[used_len++] - '0';
     }
     //if (id_len[ret] == 0){
@@ -413,7 +424,6 @@ void merge_partial_ids(){
     int partial_ids_idx[THREAD_NUM] = {0};
     for (;;){
         int best_partial_idx = -1;
-        int tmp_best_idx_1 = -1, tmp_best_idx_2 = -1;
         for (int i = 0; i < THREAD_NUM; ++i){
             if (partial_ids_idx[i] < partial_ids_size[i]) {
                 if (best_partial_idx == -1) best_partial_idx = i;
@@ -571,14 +581,14 @@ void reid(){
     #endif
 }
 
-void build_rev_graph(){
-    graph_node_edge_init(rev_graph, rev_node_info, in_degree, ids_size);
+void build_rev_graph(int * split_point){
+    graph_node_edge_init(rev_graph, rev_node_info, in_degree, ids_size, split_point);
     graph_node_edge_add<RevData>(rev_graph, rev_node_info, tD, tD_size);
     graph_node_edge_sort<RevEdgeData>(rev_graph, rev_node_info, ids_size);
 }
 
-void build_graph(){
-    graph_node_edge_init(graph, global_node_info, out_degree, ids_size);
+void build_graph(int * split_point){
+    graph_node_edge_init(graph, global_node_info, out_degree, ids_size, split_point);
     graph_node_edge_add<Data>(graph, global_node_info, tD, tD_size);
     graph_node_edge_sort<EdgeData>(graph, global_node_info, ids_size);
 }
@@ -636,7 +646,7 @@ void merge_second_graph_imp(int thread_id, int ids_offset, int ids_offset_end, i
 
 }
 
-void merge_second_graph(int ids_block_size, int ids_size){
+void merge_second_graph(int ids_block_size, int ids_size, int * split_point){
     int node_info_count = 0;
     int node_info_second_count = 0;
     int ids_offset = 0;
@@ -645,7 +655,7 @@ void merge_second_graph(int ids_block_size, int ids_size){
         int thread_id = t;
         int tmp_node_info_count = partial_node_info_count[thread_id];
         int tmp_node_info_second_count = partial_node_info_second_count[thread_id];
-        int ids_offset_end = ids_offset + ids_block_size;
+        int ids_offset_end = split_point[t+1];
         if (ids_offset_end > ids_size) ids_offset_end = ids_size;
         threads[thread_id] = thread(merge_second_graph_imp, thread_id, ids_offset, ids_offset_end, node_info_count, node_info_second_count, tmp_node_info_count, tmp_node_info_second_count);
         ids_offset = ids_offset_end;
@@ -655,6 +665,8 @@ void merge_second_graph(int ids_block_size, int ids_size){
     for (int t = 0; t < THREAD_NUM; ++t) threads[t].join();
 }
 
+int ALIGNED split_point[THREAD_NUM + 1] = {0};
+int ALIGNED tmp_split_point[THREAD_NUM + 1] = {0};
 void preprocess(){
     #ifdef REQUIRE_DEBUG_INFO
     auto start = chrono::steady_clock::now();
@@ -672,8 +684,8 @@ void preprocess(){
     #endif
 
     thread thread0;
-    thread0 = thread(build_rev_graph);
-    build_graph();
+    thread0 = thread(build_rev_graph, tmp_split_point);
+    build_graph(split_point);
     //build_rev_graph();
 
     #ifdef REQUIRE_DEBUG_INFO
@@ -690,8 +702,8 @@ void preprocess(){
     int ids_block_size = ids_size / THREAD_NUM + 1;
     for (int i = 0; i < THREAD_NUM; ++i){
         const int thread_id = i;
-        int head_ids_begin = (i) * ids_block_size;
-        int head_ids_end = (i + 1) * ids_block_size;
+        int head_ids_begin = split_point[i];//(i) * ids_block_size;
+        int head_ids_end = split_point[i+1];//(i + 1) * ids_block_size;
         if (head_ids_end > ids_size) head_ids_end = ids_size;
         threads[i] = thread(build_second_graph,
                             head_ids_begin,
@@ -700,7 +712,15 @@ void preprocess(){
     }
     for (int i = 0; i < THREAD_NUM; ++i) threads[i].join();
 
-    merge_second_graph(ids_block_size, ids_size);
+    #ifdef REQUIRE_DEBUG_INFO
+    {
+        auto end = std::chrono::steady_clock::now();
+        chrono::duration<double> elapsed_seconds = end-start;
+        cout << "Preprocess Before Second Graph Merge Time: " << elapsed_seconds.count() << "s\n";
+    }
+    #endif
+
+    merge_second_graph(ids_block_size, ids_size, split_point);
 
     #ifdef REQUIRE_DEBUG_INFO
     {
@@ -734,7 +754,7 @@ void quick_jump(int_std head,
                 const int_std * node_list,
                 uint_byte used[],
                 int_std thread_id,
-                int_std mid_amount,
+                int_std amount_mid,
                 int_std head_amount){
     const int idx = node_list[0] + 1;
     const auto & jp = jump[mid];
@@ -742,7 +762,7 @@ void quick_jump(int_std head,
     auto & real_a_len = real_ans_size[thread_id][idx];
     for (const auto & path : jp){
         if (used[path.first] == false and used[path.second] == false \
-            and amount_check(mid_amount, path.first_amount)
+            and amount_check(amount_mid, path.first_amount)
             and amount_check(path.second_amount, head_amount)){
 
         	int length = 0;
@@ -754,11 +774,12 @@ void quick_jump(int_std head,
                 real_a[real_a_len++] = node_list[i];
                 length += id_len[node_list[i]];
             }
-            real_a[real_a_len++] = mid;
+            real_a[real_a_len] = mid;
             length += id_len[mid];
-            real_a[real_a_len++] = path.first;
+            real_a[real_a_len+1] = path.first;
             length += id_len[path.first];
-            real_a[real_a_len++] = path.second;
+            real_a[real_a_len+2] = path.second;
+            real_a_len += 3;
             length += id_len[path.second];
             ans_pool[idx][head].ans_len += length;
         }
@@ -884,30 +905,30 @@ int init_jump(int_std head,
     for (; itr_u < itr_u_end && rev_graph[itr_u] > head; itr_u += 2){
 
         const auto u = rev_graph[itr_u];
-        const auto u_amount = rev_graph[itr_u + 1];
+        const auto amount_u = rev_graph[itr_u + 1];
         auto itr_v = rev_node_info[u].first;
         const auto itr_v_end = rev_node_info[u].last;
         for (; itr_v < itr_v_end && rev_graph[itr_v] > head; itr_v += 2){
 
             const auto v = rev_graph[itr_v];
-            const auto v_amount = rev_graph[itr_v + 1];
+            const auto amount_v = rev_graph[itr_v + 1];
 
-            if (amount_check(v_amount, u_amount)){
+            if (amount_check(amount_v, amount_u)){
                 auto itr_mid = rev_node_info[v].first;
                 const auto itr_mid_end = rev_node_info[v].last;
 
                 for (; itr_mid < itr_mid_end && rev_graph[itr_mid] >= head; itr_mid += 2){
                     const auto mid = rev_graph[itr_mid];
-                    const auto mid_amount = rev_graph[itr_mid + 1];
-                    if (amount_check(mid_amount, v_amount) && mid != u){
-                        if (head == mid && !amount_check(u_amount, mid_amount)) continue;
+                    const auto amount_mid = rev_graph[itr_mid + 1];
+                    if (amount_check(amount_mid, amount_v) && mid != u){
+                        if (head == mid && !amount_check(amount_u, amount_mid)) continue;
                         if (!jump_update_flag[mid]){
                             jump_update_flag[mid] = true;
                             jump[mid].clear();
                             init_node.emplace_back(mid);
-                            jump_num+=1;
+                            jump_num += 1;
                         }
-                        jump[mid].emplace_back((BackwardPath){v, u, mid_amount, u_amount});
+                        jump[mid].emplace_back((BackwardPath){v, u, amount_mid, amount_u});
                     }
                 }
                 //TODO, maybe in here can get path3 directly
@@ -922,25 +943,31 @@ int init_jump(int_std head,
     return jump_num;
 }
 
-atomic_long handle_num(-1);
+#define SEARCH_TASK_BATCH_SIZE 32
+NodeInfo thread_node_info_pool[THREAD_NUM][MAX_ID_NUM];
+atomic_long handle_num(-SEARCH_TASK_BATCH_SIZE);
 void run_job(int_std thread_id, int_std graph_size){
     vector<int_std> init_node;
-    NodeInfo thread_node_info[graph_size];
+    NodeInfo * thread_node_info = thread_node_info_pool[thread_id];
     memcpy(thread_node_info, global_node_info, graph_size * sizeof(NodeInfo));
     memcpy(second_graph_second_info[thread_id], global_second_graph_second_info, tD_size * sizeof(NodeInfo));
     vector<bool> jump_update_flag(graph_size, false);
     vector<vector<BackwardPath>> jump_pool(graph_size);
 
     auto & used = used_pool[thread_id];
-    for (int t = 0; t < graph_size; ++t){
-        int i = handle_num += 1;
-        if (i >= graph_size){break;}
-        const int jump_num = init_jump(i, jump_pool, jump_update_flag, init_node);
-        handle_thread_id[i] = thread_id;
-        if (jump_num > 0){
-            search(i, jump_pool, jump_update_flag, used, thread_id, thread_node_info, second_graph_second_info[thread_id]);
-            for (const auto & mid : init_node){
-                jump_update_flag[mid] = false;
+    for(;;){
+        int aidx_begin = handle_num += SEARCH_TASK_BATCH_SIZE;
+        int aidx_end = aidx_begin + SEARCH_TASK_BATCH_SIZE;
+        if (aidx_begin >= graph_size) {return;}
+        if (aidx_end > graph_size) aidx_end = graph_size;
+        for (int i = aidx_begin; i < aidx_end; ++i) {
+            const int jump_num = init_jump(i, jump_pool, jump_update_flag, init_node);
+            handle_thread_id[i] = thread_id;
+            if (jump_num > 0){
+                search(i, jump_pool, jump_update_flag, used, thread_id, thread_node_info, second_graph_second_info[thread_id]);
+                for (const auto & mid : init_node){
+                    jump_update_flag[mid] = false;
+                }
             }
         }
     }
@@ -999,7 +1026,7 @@ inline int_std str_copy(char *dst, const string &str){
     return sz;
 }
 
-#define WRITE_TASK_BATCH_SIZE 1000
+#define WRITE_TASK_BATCH_SIZE 100
 atomic_long write_num(-WRITE_TASK_BATCH_SIZE);
 void mmap_multi_thread_writer(const int_std writer_id,
                               char * out_buff){
@@ -1027,14 +1054,15 @@ void mmap_multi_thread_writer(const int_std writer_id,
                 const int b = real_a[start_point + 1];
                 memcpy(write_offset, id_str_s[b] + 1, id_str_s[b][0]);
                 write_offset += id_str_s[b][0];
-                
-                for (unsigned int i = start_point + 2; i < start_point + len - 1; ++i){
+
+                const int tmp_end_point = start_point + len - 1;
+                for (unsigned int i = start_point + 2; i < tmp_end_point; ++i){
                     const int a = real_a[i];
                     memcpy(write_offset, id_str_s[a] + 1, id_str_s[a][0]);
                     write_offset += id_str_s[a][0];
                 }
                 
-                const int c = real_a[start_point + len - 1];
+                const int c = real_a[tmp_end_point];
                 memcpy(write_offset, id_str_r[c] + 1, id_str_r[c][0]);
                 write_offset += id_str_r[c][0];
                 //out_buff[write_offset++] = '\n';
@@ -1054,7 +1082,7 @@ void mmap_write_data(char file_name[], const int graph_size){
     write_count(graph_size, total_ans, out_size);
     //cout << "file size should be: " << out_size << endl;
 
-    int fd = open(file_name, O_CREAT|O_RDWR|O_TRUNC, 0666);
+    int fd = open(file_name, O_CREAT|O_RDWR, 0666);
     int flag = ftruncate(fd, out_size);
     char * out_buff = (char*) mmap(NULL, out_size, PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_NONBLOCK, fd, 0);
     //char * out_buff = (char*) mmap(NULL, out_size, PROT_WRITE, MAP_PRIVATE, fd, 0);
