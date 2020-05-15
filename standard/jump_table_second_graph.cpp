@@ -50,10 +50,8 @@ TODO:
 //#define TEST
 
 #ifdef TEST
-//#define INPUT_FILE_NAME "test_data.txt"
-//#define OUTPUT_FILE_NAME "result.txt"
-#define INPUT_FILE_NAME "/data/test_data.txt"
-#define OUTPUT_FILE_NAME "/projects/student/result.txt"
+#define INPUT_FILE_NAME "test_data.txt"
+#define OUTPUT_FILE_NAME "result.txt"
 #else
 #define INPUT_FILE_NAME "/data/test_data.txt"
 #define OUTPUT_FILE_NAME "/projects/student/result.txt"
@@ -159,8 +157,8 @@ int_std * real_ans[THREAD_NUM][PATH_LENGTH_NUM] = {
     };//[MAX_ANS_NUM * MAX_PATH_LENGTH];
 int_std real_ans_size[THREAD_NUM][PATH_LENGTH_NUM];
 struct {
-	int ans_num;
-	int ans_len;
+    int ans_num;
+    int ans_len;
 } ans_pool[PATH_LENGTH_NUM][MAX_ID_NUM];
 
 int_std ans_len[MAX_ANS_NUM];
@@ -317,12 +315,6 @@ int_std get_num(char buff[], int_std & used_len){
     while (buff[used_len] >= '0') {
         ret = ret * 10 + buff[used_len++] - '0';
     }
-    //if (id_len[ret] == 0){
-    //    const int len = used_len - begin_used_len;
-    //    memcpy(id_str[ret] + 1, buff + begin_used_len, len);
-    //    id_len[ret] = len;
-    //    id_str[ret][0] = len;
-    //}
     return ret;
 }
 
@@ -342,61 +334,6 @@ int_std ids_size;
 int_std partial_ids[THREAD_NUM][MAX_ID_NUM];
 int_std partial_ids_size[THREAD_NUM];
 #define PUSH_BACK(A, A_size, x) A[A_size++] = (x)
-
-void quick_input(char * file_name){
-    //TODO: Multi Thread!
-    //Transform and hash split
-    FILE * fin = fopen(file_name, "r");
-    int_std is_finished = false;
-    int_std used_len = 0;
-    int_std left_data_size = 0;
-    while (false == is_finished){
-        int_std read_size = fread(in_buff + left_data_size, 1, SAFE_BUFF_SIZE, fin);
-        left_data_size += read_size;
-        if (read_size < SAFE_BUFF_SIZE) is_finished = true;
-        while (left_data_size - used_len > LEAST_DATA_LEFT){
-            const int a = get_num(in_buff, used_len);
-            const int b = get_num(in_buff, used_len);
-            const int c = get_num(in_buff, used_len);
-            if (a == b){continue;}
-            PUSH_BACK(tD, tD_size, ((Data){a,b,c}));
-            if (hash_insert(a, id_hash_table_flag, id_hash_table_key) >= 0) PUSH_BACK(ids, ids_size, a);
-            if (hash_insert(b, id_hash_table_flag, id_hash_table_key) >= 0) PUSH_BACK(ids, ids_size, b);
-        }
-        left_data_size = left_data_size - used_len;
-        memcpy(in_buff, in_buff + used_len, left_data_size);
-        used_len = 0;
-    }
-    while (left_data_size - used_len > 3){
-        const int a = get_num(in_buff, used_len);
-        const int b = get_num(in_buff, used_len);
-        const int c = get_num(in_buff, used_len);
-        if (a == b){continue;}
-        PUSH_BACK(tD, tD_size, ((Data){a,b,c}));
-        if (hash_insert(a, id_hash_table_flag, id_hash_table_key) >= 0) PUSH_BACK(ids, ids_size, a);
-        if (hash_insert(b, id_hash_table_flag, id_hash_table_key) >= 0) PUSH_BACK(ids, ids_size, b);
-    }
-    fclose(fin);
-    sort(ids, ids + ids_size);
-}
-
-void mmap_input(char * file_name){
-    int fd = open(file_name, O_RDONLY);
-    long file_len = lseek(fd, 0, SEEK_END);
-    char * in_buff = (char*) mmap(NULL, file_len, PROT_READ, MAP_PRIVATE, fd, 0);
-    int used_len = 0;
-    while (file_len - used_len > 3){
-        const int a = get_num(in_buff, used_len);
-        const int b = get_num(in_buff, used_len);
-        const int c = get_num(in_buff, used_len);
-        PUSH_BACK(tD, tD_size, ((Data){a,b,c}));
-        if (hash_insert(a, id_hash_table_flag, id_hash_table_key) >= 0) PUSH_BACK(ids, ids_size, a);
-        if (hash_insert(b, id_hash_table_flag, id_hash_table_key) >= 0) PUSH_BACK(ids, ids_size, b);
-    }
-    close(fd);
-    sort(ids, ids + ids_size);
-}
-
 
 void handle_input_data(char * addr_begin, char * addr_end, int thread_id){
     uint_byte * id_hash_table_flag = partial_id_hash_table_flag[thread_id];
@@ -776,9 +713,9 @@ void quick_jump(int_std head,
             and amount_check(mid_amount, path.first_amount)
             and amount_check(path.second_amount, head_amount)){
 
-        	int length = 0;
+            int length = 0;
             ++ans_pool[idx][head].ans_num;
-            const int node_list_len = node_list[0];             
+            const int node_list_len = node_list[0];
             real_a[real_a_len++] = head;
             length += id_len[head];
             for (int i = 1; i <= node_list_len; ++i){
@@ -889,15 +826,15 @@ void search(int_std head,
                 const auto itr_end_l = second_graph_second_info[itr_l_idx].last;
                 for (; itr_l < itr_end_l; itr_l+=2) {if (second_graph[itr_l] > head) break;}
                 second_graph_second_info[itr_l_idx].first = itr_l;
-				for (;itr_l < itr_end_l; itr_l+=2){
+                for (;itr_l < itr_end_l; itr_l+=2){
                     const auto l = second_graph[itr_l];
                     auto amount_l = second_graph[itr_l+1];
-				//  	if (unlikely(jump_status[l] and l != u and l != v)) {
-				//  		quick_jump(head, l, jump, node_list, used, thread_id, amount_l, amount_u);
-					if (unlikely(jump_status[l] > 0 and l != u and l != v)) {
-						quick_jump(head, l, jump_table[status2idx(jump_status[l])], status2len(jump_status[l]), \
+                //      if (unlikely(jump_status[l] and l != u and l != v)) {
+                //          quick_jump(head, l, jump, node_list, used, thread_id, amount_l, amount_u);
+                    if (unlikely(jump_status[l] > 0 and l != u and l != v)) {
+                        quick_jump(head, l, jump_table[status2idx(jump_status[l])], status2len(jump_status[l]), \
                             node_list, used, thread_id, amount_l, amount_u);
-					}
+                    }
                 }
                 used[k] = 0;
                 node_list_len = 2;
@@ -1171,7 +1108,7 @@ void memory_report(){
     cout << "Second Graph Info is: " << (sizeof(second_graph_info) >> 20) << "MB" << endl;
     cout << "Second Graph Second Info is: " << (sizeof(global_second_graph_second_info) >> 20) << "MB" << endl;
     cout << "Second Graph is: " << (sizeof(second_graph) >> 20) << "MB" << endl;
-
+    cout << "Jump Table is: " << (sizeof(global_jump_table) >> 20) << "MB" << endl;
 
     cout << "==============================================================" << endl;
 }

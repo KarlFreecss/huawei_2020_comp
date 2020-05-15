@@ -50,10 +50,8 @@ TODO:
 //#define TEST
 
 #ifdef TEST
-//#define INPUT_FILE_NAME "test_data.txt"
-//#define OUTPUT_FILE_NAME "result.txt"
-#define INPUT_FILE_NAME "/data/test_data.txt"
-#define OUTPUT_FILE_NAME "/projects/student/result.txt"
+#define INPUT_FILE_NAME "test_data.txt"
+#define OUTPUT_FILE_NAME "result.txt"
 #else
 #define INPUT_FILE_NAME "/data/test_data.txt"
 #define OUTPUT_FILE_NAME "/projects/student/result.txt"
@@ -102,9 +100,38 @@ const int ID_HASH_TABLE_SIZE    = 27579263; // MAX_ID_NUM * 2 * 7, bigger is bet
     or, use another table to record whether it be used.
 */
 
-int_std real_ans[THREAD_NUM][PATH_LENGTH_NUM][MAX_ANS_NUM * MAX_PATH_LENGTH];
+int_std real_ans_buff[THREAD_NUM][MAX_ANS_NUM * (3 + 4 + 5 + 6 + 7)];
+int_std * real_ans3[THREAD_NUM] = {real_ans_buff[0],
+                                   real_ans_buff[1], 
+                                   real_ans_buff[2], 
+                                   real_ans_buff[3]};
+int_std * real_ans4[THREAD_NUM] = {real_ans_buff[0] + MAX_ANS_NUM * 3, 
+                                   real_ans_buff[1] + MAX_ANS_NUM * 3,
+                                   real_ans_buff[2] + MAX_ANS_NUM * 3,
+                                   real_ans_buff[3] + MAX_ANS_NUM * 3};
+int_std * real_ans5[THREAD_NUM] = {real_ans_buff[0] + MAX_ANS_NUM * (3 + 4), 
+                                   real_ans_buff[1] + MAX_ANS_NUM * (3 + 4),
+                                   real_ans_buff[2] + MAX_ANS_NUM * (3 + 4),
+                                   real_ans_buff[3] + MAX_ANS_NUM * (3 + 4)};
+int_std * real_ans6[THREAD_NUM] = {real_ans_buff[0] + MAX_ANS_NUM * (3 + 4 + 5), 
+                                   real_ans_buff[1] + MAX_ANS_NUM * (3 + 4 + 5),
+                                   real_ans_buff[2] + MAX_ANS_NUM * (3 + 4 + 5),
+                                   real_ans_buff[3] + MAX_ANS_NUM * (3 + 4 + 5)};
+int_std * real_ans7[THREAD_NUM] = {real_ans_buff[0] + MAX_ANS_NUM * (3 + 4 + 5 + 6), 
+                                   real_ans_buff[1] + MAX_ANS_NUM * (3 + 4 + 5 + 6),
+                                   real_ans_buff[2] + MAX_ANS_NUM * (3 + 4 + 5 + 6),
+                                   real_ans_buff[3] + MAX_ANS_NUM * (3 + 4 + 5 + 6)};
+int_std * real_ans[THREAD_NUM][PATH_LENGTH_NUM] = {
+    real_ans3[0], real_ans4[0], real_ans5[0], real_ans6[0], real_ans7[0],
+    real_ans3[1], real_ans4[1], real_ans5[1], real_ans6[1], real_ans7[1],
+    real_ans3[2], real_ans4[2], real_ans5[2], real_ans6[2], real_ans7[2],
+    real_ans3[3], real_ans4[3], real_ans5[3], real_ans6[3], real_ans7[3]
+    };//[MAX_ANS_NUM * MAX_PATH_LENGTH];
 int_std real_ans_size[THREAD_NUM][PATH_LENGTH_NUM];
-int_std ans_pool[PATH_LENGTH_NUM][MAX_ID_NUM];
+struct {
+    int ans_num;
+    int ans_len;
+} ans_pool[PATH_LENGTH_NUM][MAX_ID_NUM];
 
 int_std ans_len[MAX_ANS_NUM];
 int_std ans_head[MAX_ANS_NUM];
@@ -116,13 +143,16 @@ uint_std id_hash_table_key[ID_HASH_TABLE_SIZE];
 uint_std id_hash_table_value[ID_HASH_TABLE_SIZE];
 uint_byte id_hash_table_flag[ID_HASH_TABLE_SIZE];
 
+uint_std partial_id_hash_table_key[THREAD_NUM][ID_HASH_TABLE_SIZE];
+uint_byte partial_id_hash_table_flag[THREAD_NUM][ID_HASH_TABLE_SIZE];
+
 /*
     The purpose of hash is mapping id to unique rank (or idx).
     And maybe check id whether this id is appeared.
     The id num is smaller than ID_HASH_TABLE_SIZE, so, it don't have any size check.
 */
 inline
-int_std get_hash_idx(int_std id){
+int_std get_hash_idx(int_std id, uint_byte * id_hash_table_flag, uint_std * id_hash_table_key){
     int_std idx = id % ID_HASH_TABLE_SIZE;
     while (id_hash_table_flag[idx] != 0 && id_hash_table_key[idx] != id) {
         ++idx;
@@ -132,8 +162,8 @@ int_std get_hash_idx(int_std id){
 }
 
 inline
-int_std hash_insert(int_std id){
-    int_std idx = get_hash_idx(id);
+int_std hash_insert(int_std id, uint_byte * id_hash_table_flag, uint_std * id_hash_table_key){
+    int_std idx = get_hash_idx(id, id_hash_table_flag, id_hash_table_key);
     if (id_hash_table_flag[idx] != 0) return -1;
     id_hash_table_flag[idx] = 1;
     id_hash_table_key[idx] = id;
@@ -141,8 +171,8 @@ int_std hash_insert(int_std id){
 }
 
 inline
-int_std hash_mapping(int_std id, int_std value){
-    int_std idx = get_hash_idx(id);
+int_std hash_mapping(int_std id, int_std value, uint_byte * id_hash_table_flag, uint_std * id_hash_table_key, uint_std * id_hash_table_value){
+    int_std idx = get_hash_idx(id, id_hash_table_flag, id_hash_table_key);
     id_hash_table_flag[idx] = 1;
     id_hash_table_key[idx] = id;
     id_hash_table_value[idx] = value;
@@ -150,8 +180,8 @@ int_std hash_mapping(int_std id, int_std value){
 }
 
 inline
-int_std hash_query(int_std id){
-    int_std idx = get_hash_idx(id);
+int_std hash_query(int_std id, uint_byte * id_hash_table_flag, uint_std * id_hash_table_key, uint_std * id_hash_table_value){
+    int_std idx = get_hash_idx(id, id_hash_table_flag, id_hash_table_key);
     if (id_hash_table_flag[idx] == 0) return -1;
     return id_hash_table_value[idx];
 }
@@ -179,15 +209,19 @@ struct NodeInfo{
 };
 
 int_std ALIGNED graph[MAX_GRAPH_SIZE];
-NodeInfo ALIGNED node_info[MAX_ID_NUM];
+NodeInfo ALIGNED global_node_info[MAX_ID_NUM];
 
 int_std ALIGNED rev_graph[MAX_GRAPH_SIZE];
 NodeInfo ALIGNED rev_node_info[MAX_ID_NUM];
+
+Data tD[MAX_DATA_RECORD_SIZE];
+int tD_size;
 
 inline
 void graph_node_edge_init(int_std * graph, NodeInfo * node_info, int * nums, int valid_graph_size){
     node_info[0].min = 0x7fffffff;
     node_info[0].max = 0;
+
     for (int idx = 1; idx < valid_graph_size; ++idx){
     // In fact, there should be not num equal to zero.
         int num = nums[idx - 1];
@@ -244,23 +278,16 @@ void graph_node_edge_sort(int_std * graph, NodeInfo * node_info, int valid_graph
     }
 }
 
-Data tD[MAX_DATA_RECORD_SIZE];
-int tD_size;
+Data partial_tD[THREAD_NUM][MAX_DATA_RECORD_SIZE];
+int partial_tD_size[THREAD_NUM];
 
 inline
 int_std get_num(char buff[], int_std & used_len){
-    while (buff[used_len] < '0' or buff[used_len] > '9') ++used_len;
-    const int begin_used_len = used_len;
+    while (buff[used_len] < '0') ++used_len;
     int_std ret = buff[used_len++] - '0';
-    while (buff[used_len] >= '0' && buff[used_len] <= '9') {
+    while (buff[used_len] >= '0') {
         ret = ret * 10 + buff[used_len++] - '0';
     }
-    //if (id_len[ret] == 0){
-    //    const int len = used_len - begin_used_len;
-    //    memcpy(id_str[ret] + 1, buff + begin_used_len, len);
-    //    id_len[ret] = len;
-    //    id_str[ret][0] = len;
-    //}
     return ret;
 }
 
@@ -276,41 +303,80 @@ char in_buff[MAX_BUFF_SIZE];
 
 int_std ids[MAX_ID_NUM];
 int_std ids_size;
+
+int_std partial_ids[THREAD_NUM][MAX_ID_NUM];
+int_std partial_ids_size[THREAD_NUM];
 #define PUSH_BACK(A, A_size, x) A[A_size++] = (x)
 
-void quick_input(char * file_name){
-    FILE * fin = fopen(file_name, "r");
-    int_std is_finished = false;
-    int_std used_len = 0;
-    int_std left_data_size = 0;
-    while (false == is_finished){
-        int_std read_size = fread(in_buff + left_data_size, 1, SAFE_BUFF_SIZE, fin);
-        left_data_size += read_size;
-        if (read_size < SAFE_BUFF_SIZE) is_finished = true;
-        while (left_data_size - used_len > LEAST_DATA_LEFT){
-            const int a = get_num(in_buff, used_len);
-            const int b = get_num(in_buff, used_len);
-            const int c = get_num(in_buff, used_len);
-            if (a == b){continue;}
-            PUSH_BACK(tD, tD_size, ((Data){a,b,c}));
-            if (hash_insert(a) >= 0) PUSH_BACK(ids, ids_size, a);
-            if (hash_insert(b) >= 0) PUSH_BACK(ids, ids_size, b);
-        }
-        left_data_size = left_data_size - used_len;
-        memcpy(in_buff, in_buff + used_len, left_data_size);
-        used_len = 0;
-    }
-    while (left_data_size - used_len > 3){
+void handle_input_data(char * addr_begin, char * addr_end, int thread_id){
+    uint_byte * id_hash_table_flag = partial_id_hash_table_flag[thread_id];
+    uint_std * id_hash_table_key = partial_id_hash_table_key[thread_id];
+    int_std * ids = partial_ids[thread_id];
+    Data * tD = partial_tD[thread_id];
+    char * in_buff = addr_begin;
+    int ids_size = 0;
+    int tD_size = 0;
+    const long data_len = addr_end - addr_begin;
+    int used_len = 0;
+
+    while (data_len - used_len > 3){
         const int a = get_num(in_buff, used_len);
         const int b = get_num(in_buff, used_len);
         const int c = get_num(in_buff, used_len);
-        if (a == b){continue;}
         PUSH_BACK(tD, tD_size, ((Data){a,b,c}));
-        if (hash_insert(a) >= 0) PUSH_BACK(ids, ids_size, a);
-        if (hash_insert(b) >= 0) PUSH_BACK(ids, ids_size, b);
+        if (hash_insert(a, id_hash_table_flag, id_hash_table_key) >= 0) PUSH_BACK(ids, ids_size, a);
+        if (hash_insert(b, id_hash_table_flag, id_hash_table_key) >= 0) PUSH_BACK(ids, ids_size, b);
     }
     sort(ids, ids + ids_size);
-    fclose(fin);
+    partial_ids_size[thread_id] = ids_size;
+    partial_tD_size[thread_id] = tD_size;
+}
+
+void merge_partial_ids(){
+    ids_size = 0; // THIS IS GLOBAL ids_size!!!!!!
+    int partial_ids_idx[THREAD_NUM] = {0};
+    for (;;){
+        int best_partial_idx = -1;
+        for (int i = 0; i < THREAD_NUM; ++i){
+            if (partial_ids_idx[i] < partial_ids_size[i]) {
+                if (best_partial_idx == -1) best_partial_idx = i;
+                else if (partial_ids[i][partial_ids_idx[i]] < partial_ids[best_partial_idx][partial_ids_idx[best_partial_idx]]){
+                    best_partial_idx = i;
+                }
+            }
+        }
+        if (best_partial_idx == -1) break;
+        uint_std d = partial_ids[best_partial_idx][partial_ids_idx[best_partial_idx]];
+        if (ids_size == 0 || ids[ids_size-1] != d) ids[ids_size++] = d;
+        ++partial_ids_idx[best_partial_idx];
+    }
+}
+
+void multi_thead_input(char * file_name){
+    int fd = open(file_name, O_RDONLY);
+    long file_len = lseek(fd, 0, SEEK_END);
+    char * in_buff = (char*) mmap(NULL, file_len, PROT_READ, MAP_PRIVATE, fd, 0);
+    
+    const int block_file_len = file_len / THREAD_NUM + 1;
+    int block_begin = 0;
+    thread threads[THREAD_NUM];
+    for (int i = 0; i < THREAD_NUM; ++i){
+        int thread_id = i;
+        int block_end = (i + 1) * block_file_len;
+        if (block_end > file_len) block_end = file_len;
+        while (in_buff[block_end] != '\n' && block_end < file_len) ++block_end;
+        threads[i] = thread(handle_input_data, in_buff + block_begin, in_buff + block_end, thread_id);
+        //handle_input_data(in_buff + block_begin, in_buff + block_end, thread_id);
+                       //partial_id_hash_table_flag[thread_id], 
+                       //partial_id_hash_table_flag[thread_id], 
+                       //partial_ids[thread_id], 
+                       //partial_data[thread_id]);
+        block_begin = block_end + 1;
+    }
+    close(fd);
+    for (int i = 0; i < THREAD_NUM; ++i) threads[i].join();
+    merge_partial_ids();
+    //id_assign();
 }
 
 //void mmap_input(char * file_name){
@@ -334,45 +400,163 @@ void quick_input(char * file_name){
 ////////////////// Preprocess ///////////////////
 /////////////////////////////////////////////////
 
-int in_degree[MAX_ID_NUM];
-int out_degree[MAX_ID_NUM];
-char id_str[MAX_ID_NUM][((MAX_ID_STRING_LENGTH) / 8 + 1) * 8];
-char id_len[MAX_ID_NUM];
+int ALIGNED in_degree[MAX_ID_NUM], partial_in_degree[THREAD_NUM][MAX_ID_NUM];
+int ALIGNED out_degree[MAX_ID_NUM], partial_out_degree[THREAD_NUM][MAX_ID_NUM];
+char ALIGNED id_str_r[MAX_ID_NUM][((MAX_ID_STRING_LENGTH) / 8 + 1) * 8];
+char ALIGNED id_str_s[MAX_ID_NUM][((MAX_ID_STRING_LENGTH) / 8 + 1) * 8];
+char ALIGNED id_len[MAX_ID_NUM];
 
-inline 
-void reid(){
+void id_assign(){
     for (int i = 0; i < ids_size; ++i){
-        hash_mapping(ids[i], i);
+        hash_mapping(ids[i], i, id_hash_table_flag, id_hash_table_key, id_hash_table_value);
         const string str = to_string(ids[i]);
-        id_len[i] = str.length();
-        id_str[i][0] = str.length();
-        memcpy(id_str[i] + 1, str.c_str(), id_len[i]);
+        id_len[i] = str.length() + 1;
+        
+        id_str_r[i][0] = str.length() + 1;
+        memcpy(id_str_r[i] + 1, str.c_str(), id_len[i]);
+        id_str_r[i][id_len[i]] = '\n';
+
+        id_str_s[i][0] = str.length() + 1;
+        memcpy(id_str_s[i] + 1, str.c_str(), id_len[i]);
+        id_str_s[i][id_len[i]] = ',';
     }
+}
+
+void id_remapping(int thread_id){
+    int * in_degree = partial_in_degree[thread_id];
+    int * out_degree = partial_out_degree[thread_id];
+    Data * tD = partial_tD[thread_id];
+    int tD_size = partial_tD_size[thread_id];
     for (int i = 0; i < tD_size; ++i){
         auto & d = tD[i];
-        d.a = hash_query(d.a);
-        d.b = hash_query(d.b);
+        d.a = hash_query(d.a, id_hash_table_flag, id_hash_table_key, id_hash_table_value);
+        d.b = hash_query(d.b, id_hash_table_flag, id_hash_table_key, id_hash_table_value);
         out_degree[d.a] += 1;
         in_degree[d.b] += 1;
     }
 }
 
-void preprocess(){
-    reid();
+void multi_thread_reid(){
+    id_assign();
+    thread threads[THREAD_NUM];
+    for (int i = 0; i < THREAD_NUM; ++i){
+        threads[i] = thread(id_remapping, i);
+    }
+    for (int i = 0; i < THREAD_NUM; ++i) threads[i].join();
+    for (int i = 0; i < ids_size; ++i){
+        in_degree[i] = partial_in_degree[0][i] + partial_in_degree[1][i] + partial_in_degree[2][i] + partial_in_degree[3][i];
+        out_degree[i] = partial_out_degree[0][i] + partial_out_degree[1][i] + partial_out_degree[2][i] + partial_out_degree[3][i];
+    }
+    tD_size = 0;
+    for (int i = 0; i < THREAD_NUM; ++i){
+        memcpy(tD + tD_size, partial_tD[i], sizeof(Data) * partial_tD_size[i]);
+        tD_size += partial_tD_size[i];
+    }
+}
 
-    graph_node_edge_init(graph, node_info, out_degree, ids_size);
-    graph_node_edge_add<Data>(graph, node_info, tD, tD_size);
-    graph_node_edge_sort<EdgeData>(graph, node_info, ids_size);
+//inline 
+void reid(){
+    #ifdef REQUIRE_DEBUG_INFO
+    auto start = chrono::steady_clock::now();
+    #endif
 
+    sort(ids, ids + ids_size);
+
+    #ifdef REQUIRE_DEBUG_INFO
+    {
+        auto end = std::chrono::steady_clock::now();
+        chrono::duration<double> elapsed_seconds = end-start;
+        cout << "reid : after ids_sort time: " << elapsed_seconds.count() << "s\n";
+    }
+    #endif
+
+    id_assign();
+
+    //for (int i = 0; i < ids_size; ++i){
+    //    hash_mapping(ids[i], i, id_hash_table_flag, id_hash_table_key, id_hash_table_value);
+    //    const string str = to_string(ids[i]);
+    //    id_len[i] = str.length() + 1;
+    //    
+    //    id_str_r[i][0] = str.length() + 1;
+    //    memcpy(id_str_r[i] + 1, str.c_str(), id_len[i]);
+    //    id_str_r[i][id_len[i]] = '\n';
+
+    //    id_str_s[i][0] = str.length() + 1;
+    //    memcpy(id_str_s[i] + 1, str.c_str(), id_len[i]);
+    //    id_str_s[i][id_len[i]] = ',';
+    //}
+    #ifdef REQUIRE_DEBUG_INFO
+    {
+        auto end = std::chrono::steady_clock::now();
+        chrono::duration<double> elapsed_seconds = end-start;
+        cout << "reid : after assign id time: " << elapsed_seconds.count() << "s\n";
+    }
+    #endif
+
+    //TODO: Multi Thread!
+    for (int i = 0; i < tD_size; ++i){
+        auto & d = tD[i];
+        d.a = hash_query(d.a, id_hash_table_flag, id_hash_table_key, id_hash_table_value);
+        d.b = hash_query(d.b, id_hash_table_flag, id_hash_table_key, id_hash_table_value);
+        out_degree[d.a] += 1;
+        in_degree[d.b] += 1;
+    }
+
+    #ifdef REQUIRE_DEBUG_INFO
+    {
+        auto end = std::chrono::steady_clock::now();
+        chrono::duration<double> elapsed_seconds = end-start;
+        cout << "reid : after fixed id time: " << elapsed_seconds.count() << "s\n";
+    }
+    #endif
+}
+
+void build_rev_graph(){
     graph_node_edge_init(rev_graph, rev_node_info, in_degree, ids_size);
     graph_node_edge_add<RevData>(rev_graph, rev_node_info, tD, tD_size);
     graph_node_edge_sort<RevEdgeData>(rev_graph, rev_node_info, ids_size);
 }
 
+void build_graph(){
+    graph_node_edge_init(graph, global_node_info, out_degree, ids_size);
+    graph_node_edge_add<Data>(graph, global_node_info, tD, tD_size);
+    graph_node_edge_sort<EdgeData>(graph, global_node_info, ids_size);
+}
+
+void preprocess(){
+    #ifdef REQUIRE_DEBUG_INFO
+    auto start = chrono::steady_clock::now();
+    #endif
+
+    //reid();
+    multi_thread_reid();
+
+    #ifdef REQUIRE_DEBUG_INFO
+    {
+        auto end = std::chrono::steady_clock::now();
+        chrono::duration<double> elapsed_seconds = end-start;
+        cout << "Preprocess reid time: " << elapsed_seconds.count() << "s\n";
+    }
+    #endif
+
+    thread thread0;
+    thread0 = thread(build_rev_graph);
+    build_graph();
+    thread0.join();
+    //build_rev_graph();
+
+    #ifdef REQUIRE_DEBUG_INFO
+    {
+        auto end = std::chrono::steady_clock::now();
+        chrono::duration<double> elapsed_seconds = end-start;
+        cout << "Preprocess : Build Graph Time: " << elapsed_seconds.count() << "s\n";
+    }
+    #endif
+}
+
 /////////////////////////////////////////////////
 /////////////////////////////////////////////////
 
-//#define amount_valid(X,Y) (((X)<=5ll*(Y))&&((Y)<=3ll*(X)))
 inline
 bool amount_check(int X, int Y){
     return (X <= 5ll * Y) && (Y <= 3ll * X);
@@ -409,15 +593,23 @@ void quick_jump(int_std head,
             and amount_check(mid_amount, path.first_amount)
             and amount_check(path.second_amount, head_amount)){
 
-            ++ans_pool[idx][head];
+            int length = 0;
+            ++ans_pool[idx][head].ans_num;
             const int node_list_len = node_list[0];
             real_a[real_a_len++] = head;
+            length += id_len[head];
             for (int i = 1; i <= node_list_len; ++i){
                 real_a[real_a_len++] = node_list[i];
+                length += id_len[node_list[i]];
             }
-            real_a[real_a_len++] = mid;
-            real_a[real_a_len++] = path.first;
-            real_a[real_a_len++] = path.second;
+            real_a[real_a_len] = mid;
+            length += id_len[mid];
+            real_a[real_a_len+1] = path.first;
+            length += id_len[path.first];
+            real_a[real_a_len+2] = path.second;
+            real_a_len += 3;
+            length += id_len[path.second];
+            ans_pool[idx][head].ans_len += length;
         }
     }
 }
@@ -430,11 +622,16 @@ void head_quick_jump(int_std head,
     auto & real_a = real_ans[thread_id][idx];
     auto & real_a_len = real_ans_size[thread_id][idx];
     for (const auto & path : jp){
-        ++ans_pool[idx][head];
+        int length = 0;
+        ++ans_pool[0][head].ans_num;
         real_a[real_a_len] = head;
+        length += id_len[head];
         real_a[real_a_len+1] = path.first;
+        length += id_len[path.first];
         real_a[real_a_len+2] = path.second;
+        length += id_len[path.second];
         real_a_len += 3;
+        ans_pool[0][head].ans_len += length;
     }
 }
 
@@ -451,9 +648,11 @@ void head_quick_jump(int_std head,
                 const auto amount_##x = graph[itr_##x + 1];
 
 #define TRY_QUICK_JUMP(head, v, amount_head) if(jump_update_flag[v])\
-                                                            quick_jump(head, v, jump, node_list, used, thread_id, amount_##v, amount_head)
+                quick_jump(head, v, jump, node_list, used, thread_id, amount_##v, amount_head)
 
-#define POSSIBLE(x, v) if ((amount_##x > 5ll * node_info[v].max) and (3ll * amount_##x < node_info[v].min)) continue;
+#define IMPOSSIBLE(x) if ((amount_##x > 5ll * node_info[x].max) or (3ll * amount_##x < node_info[x].min)) continue
+
+#define ALWAYS(x) if ((amount_##x <= 5ll * node_info[x].min) and (3ll * amount_##x >= node_info[x].max)) always_check_##x = 1; else always_check_##x = 0
 
 void search(int_std head,
             vector<vector<BackwardPath>> & jump,
@@ -465,39 +664,41 @@ void search(int_std head,
     int_std node_list[4];
     int_std & node_list_len = node_list[0];
     node_list_len = 0; 
+    int always_check_u, always_check_v, always_check_k;
     EDGE_ITR_INIT(u, head);
     for (;itr_u < itr_end_u; itr_u+=2){
         GET_NODE_INFO(u); //u and amount
-        POSSIBLE(u, u);
-        //cout << amount_u << ' ' << u << ' ' << node_info[0].min << ' ' << node_info[0].max << endl;
-        //exit(0);
+        IMPOSSIBLE(u);
+        ALWAYS(u);
         used[u] = 1;
         TRY_QUICK_JUMP(head, u, amount_u);
         node_list[++node_list_len] = u;
         EDGE_ITR_INIT(v, u);
         for (;itr_v < itr_end_v; itr_v+=2){
             GET_NODE_INFO(v);
-            if (!amount_check(amount_u, amount_v)) continue;
-            POSSIBLE(v, v);
+            if (always_check_u == 0 && !amount_check(amount_u, amount_v)) continue;
+            IMPOSSIBLE(v);
+            ALWAYS(v);
             used[v] = 1;
             TRY_QUICK_JUMP(head, v, amount_u);
             node_list[++node_list_len] = v;
             EDGE_ITR_INIT(k, v);
             for (;itr_k < itr_end_k; itr_k+=2){
                 GET_NODE_INFO(k);
-                if (!amount_check(amount_v, amount_k)) continue;
+                if (always_check_v == 0 && !amount_check(amount_v, amount_k)) continue;
                 if (k == u) continue;
-                POSSIBLE(k, k);
+                IMPOSSIBLE(k);
+                ALWAYS(k);
                 used[k] = 1;
                 TRY_QUICK_JUMP(head, k, amount_u);
                 node_list[++node_list_len] = k;
                 EDGE_ITR_INIT(l, k);
-				for (;itr_l < itr_end_l; itr_l+=2){
+                for (;itr_l < itr_end_l; itr_l+=2){
                     GET_NODE_INFO(l);
-                    if (!amount_check(amount_k, amount_l)) continue;
-					if (unlikely(jump_update_flag[l] and l != u and l != v)) {
-						quick_jump(head, l, jump, node_list, used, thread_id, amount_l, amount_u);
-					}
+                    if (always_check_k == 0 && !amount_check(amount_k, amount_l)) continue;
+                    if (unlikely(jump_update_flag[l] and l != u and l != v)) {
+                        quick_jump(head, l, jump, node_list, used, thread_id, amount_l, amount_u);
+                    }
                 }
                 used[k] = 0;
                 node_list_len = 2;
@@ -510,44 +711,52 @@ void search(int_std head,
     }
 }
 
+#define IMPOSSIBLE_JUMP(u) if ((5ll * amount_##u < rev_node_info[u].min) or (3ll * rev_node_info[u].max < amount_##u)) continue
+
+#define ALWAYS_JUMP(u) if ((rev_node_info[u].max <= 5ll * amount_##u) and (3ll * rev_node_info[u].min >= amount_##u)) always_check_##u = 1; else always_check_##u = 0
+
 int init_jump(int_std head, 
             vector<vector<BackwardPath>> & jump, 
             vector<bool> & jump_update_flag, 
             vector<int_std> & init_node){
     int jump_num = 0;
+    int always_check_u, always_check_v;
     init_node.clear();
     auto itr_u = rev_node_info[head].first;
     const auto itr_u_end = rev_node_info[head].last;
     for (; itr_u < itr_u_end && rev_graph[itr_u] > head; itr_u += 2){
 
         const auto u = rev_graph[itr_u];
-        const auto u_amount = rev_graph[itr_u + 1];
+        const auto amount_u = rev_graph[itr_u + 1];
+        IMPOSSIBLE_JUMP(u);
+        ALWAYS_JUMP(u);
+
         auto itr_v = rev_node_info[u].first;
         const auto itr_v_end = rev_node_info[u].last;
         for (; itr_v < itr_v_end && rev_graph[itr_v] > head; itr_v += 2){
 
             const auto v = rev_graph[itr_v];
-            const auto v_amount = rev_graph[itr_v + 1];
+            const auto amount_v = rev_graph[itr_v + 1];
+            if (always_check_u == 0 && !amount_check(amount_v, amount_u)) continue;
+            IMPOSSIBLE_JUMP(v);
+            ALWAYS_JUMP(v);
 
-            if (amount_check(v_amount, u_amount)){
-                auto itr_mid = rev_node_info[v].first;
-                const auto itr_mid_end = rev_node_info[v].last;
-
-                for (; itr_mid < itr_mid_end && rev_graph[itr_mid] >= head; itr_mid += 2){
-                    const auto mid = rev_graph[itr_mid];
-                    const auto mid_amount = rev_graph[itr_mid + 1];
-                    if (amount_check(mid_amount, v_amount) && mid != u){
-                        if (head == mid && !amount_check(u_amount, mid_amount)) continue;
-                        if (!jump_update_flag[mid]){
-                            jump_update_flag[mid] = true;
-                            jump[mid].clear();
-                            init_node.emplace_back(mid);
-                            jump_num+=1;
-                        }
-                        jump[mid].emplace_back((BackwardPath){v, u, mid_amount, u_amount});
+            auto itr_mid = rev_node_info[v].first;
+            const auto itr_mid_end = rev_node_info[v].last;
+            for (; itr_mid < itr_mid_end && rev_graph[itr_mid] >= head; itr_mid += 2){
+                const auto mid = rev_graph[itr_mid];
+                const auto amount_mid = rev_graph[itr_mid + 1];
+                if (always_check_v == 0 && !amount_check(amount_mid, amount_v)) continue;
+                if (mid != u){
+                    if (head == mid && !amount_check(amount_u, amount_mid)) continue;
+                    if (!jump_update_flag[mid]){
+                        jump_update_flag[mid] = true;
+                        jump[mid].clear();
+                        init_node.emplace_back(mid);
+                        jump_num+=1;
                     }
+                    jump[mid].emplace_back((BackwardPath){v, u, amount_mid, amount_u});
                 }
-                //TODO, maybe in here can get path3 directly
             }
 
         }
@@ -559,38 +768,40 @@ int init_jump(int_std head,
     return jump_num;
 }
 
-atomic_long handle_num(-1);
+#define SEARCH_TASK_BATCH_SIZE 32
+NodeInfo thread_node_info_pool[THREAD_NUM][MAX_ID_NUM];
+atomic_long handle_num(-SEARCH_TASK_BATCH_SIZE);
 void run_job(int_std thread_id, int_std graph_size){
     vector<int_std> init_node;
-    NodeInfo thread_node_info[graph_size];
-    memcpy(thread_node_info, node_info, graph_size * sizeof(NodeInfo));
+    NodeInfo * thread_node_info = thread_node_info_pool[thread_id];
+    memcpy(thread_node_info, global_node_info, graph_size * sizeof(NodeInfo));
     vector<bool> jump_update_flag(graph_size, false);
     vector<vector<BackwardPath>> jump_pool(graph_size);
+
+    auto & used = used_pool[thread_id];
+    for(;;){
+        int aidx_begin = handle_num += SEARCH_TASK_BATCH_SIZE;
+        int aidx_end = aidx_begin + SEARCH_TASK_BATCH_SIZE;
+        if (aidx_begin >= graph_size) {return;}
+        if (aidx_end > graph_size) aidx_end = graph_size;
+        for (int i = aidx_begin; i < aidx_end; ++i) {
+            const int jump_num = init_jump(i, jump_pool, jump_update_flag, init_node);
+            handle_thread_id[i] = thread_id;
+            if (jump_num > 0){
+                search(i, jump_pool, jump_update_flag, used, thread_id, thread_node_info);
+                for (const auto & mid : init_node){
+                    jump_update_flag[mid] = false;
+                }
+            }
+        }
+    }
+}
+
+void solve(){
     #ifdef REQUIRE_DEBUG_INFO
     auto start = chrono::steady_clock::now();
     #endif
 
-    auto & used = used_pool[thread_id];
-    for (int t = 0; t < graph_size; ++t){
-        int i = handle_num += 1;
-        if (i >= graph_size){break;}
-        const int jump_num = init_jump(i, jump_pool, jump_update_flag, init_node);
-        handle_thread_id[i] = thread_id;
-        if (jump_num > 0){
-            search(i, jump_pool, jump_update_flag, used, thread_id, thread_node_info);
-            for (const auto & mid : init_node){
-                jump_update_flag[mid] = false;
-            }
-        }
-    }
-    #ifdef REQUIRE_DEBUG_INFO
-    auto end = std::chrono::steady_clock::now();
-    chrono::duration<double> elapsed_seconds = end-start;
-    cout << "elapsed time: " << elapsed_seconds.count() << "s\n";
-    #endif
-}
-
-void solve(){
     thread threads[THREAD_NUM - 1];
     for (int i = 0; i < THREAD_NUM-1; ++i){
         threads[i] = thread(run_job, i, ids_size);
@@ -599,6 +810,12 @@ void solve(){
     for (int i = 0; i < THREAD_NUM - 1; ++i){
         threads[i].join();
     }
+
+    #ifdef REQUIRE_DEBUG_INFO
+    auto end = std::chrono::steady_clock::now();
+    chrono::duration<double> elapsed_seconds = end-start;
+    cout << "Pure Solve time: " << elapsed_seconds.count() << "s\n";
+    #endif
 }
 
 
@@ -606,63 +823,21 @@ inline
 void write_count(const int graph_size, int_std & total_ans, int_std & out_size){
     total_ans = 0;
     out_size = 0;
-    for (int len_t = MIN_PATH_LENGTH; len_t < MAX_PATH_LENGTH; ++len_t){
+    int_std start_point_pool[THREAD_NUM][PATH_LENGTH_NUM] = {0};
+    for (int len_t = MIN_PATH_LENGTH; len_t <= MAX_PATH_LENGTH; ++len_t){
         const int len = len_t;
         const auto idx = len - MIN_PATH_LENGTH;
-        const auto & ans = ans_pool[idx];
-        int_std start_point_pool[THREAD_NUM][PATH_LENGTH_NUM] = {0};
         for (int i = 0; i < graph_size; ++i){
-            if (ans[i] == 0) {continue;}
+            if (ans_pool[idx][i].ans_num == 0) {continue;}
             int_std thread_id = handle_thread_id[i];
             auto & start_point = start_point_pool[thread_id][idx];
             ans_head[ans_len_size] = i;
             ans_write_addr[ans_len_size] = out_size;
             ans_start_point[ans_len_size] = start_point;
+            start_point += ans_pool[idx][i].ans_num * len;
             ans_len[ans_len_size++] = len;
-            total_ans += ans[i];
-            const int_std end_point = start_point + ans[i] * len;
-            const auto & real_a = real_ans[thread_id][idx];
-
-            for (; start_point < end_point; start_point += len){
-                out_size += id_len[real_a[start_point]] + len;
-                out_size += id_len[real_a[start_point + 1]];
-                out_size += id_len[real_a[start_point + 2]];
-                const int tmp_end_point = start_point + len;
-                for (unsigned int i = start_point + 3; i < tmp_end_point; ++i){
-                    out_size += id_len[real_a[i]];
-                }
-                //++out_size;
-            }
-        }
-    }
-
-    {
-        const int len = MAX_PATH_LENGTH;
-        const auto idx = len - MIN_PATH_LENGTH;
-        const auto & ans = ans_pool[idx];
-        int_std start_point_pool[THREAD_NUM][PATH_LENGTH_NUM] = {0};
-        for (int i = 0; i < graph_size; ++i){
-            if (ans[i] == 0) {continue;}
-            int_std thread_id = handle_thread_id[i];
-            auto & start_point = start_point_pool[thread_id][idx];
-            ans_head[ans_len_size] = i;
-            ans_write_addr[ans_len_size] = out_size;
-            ans_start_point[ans_len_size] = start_point;
-            ans_len[ans_len_size++] = len;
-            total_ans += ans[i];
-            const int_std end_point = start_point + ans[i] * len;
-            out_size += ans[i] * len;
-            const auto & real_a = real_ans[thread_id][idx];
-            for (; start_point < end_point; start_point += len){
-                out_size += id_len[real_a[start_point + 0]];
-                out_size += id_len[real_a[start_point + 1]];
-                out_size += id_len[real_a[start_point + 2]];
-                out_size += id_len[real_a[start_point + 3]];
-                out_size += id_len[real_a[start_point + 4]];
-                out_size += id_len[real_a[start_point + 5]];
-                out_size += id_len[real_a[start_point + 6]];
-                //++out_size;
-            }
+            total_ans += ans_pool[idx][i].ans_num;
+            out_size += ans_pool[idx][i].ans_len;// + ans_pool[idx][i].ans_num * len;
         }
     }
     out_size += to_string(total_ans).length() + 1;
@@ -675,37 +850,46 @@ inline int_std str_copy(char *dst, const string &str){
     return sz;
 }
 
-#define WRITE_TASK_BATCH_SIZE 1000
+#define WRITE_TASK_BATCH_SIZE 100
 atomic_long write_num(-WRITE_TASK_BATCH_SIZE);
 void mmap_multi_thread_writer(const int_std writer_id,
                               char * out_buff){
     //int_std start_point_pool[THREAD_NUM][ANS_LENGTH_NUM] = {0};
     //int_std end_point_pool[THREAD_NUM][ANS_LENGTH_NUM] = {0};
-    auto beg_t = clock();
     for (int t = 0; t < ans_len_size; ++t){
         int aidx_begin = write_num += WRITE_TASK_BATCH_SIZE;
         int aidx_end = aidx_begin + WRITE_TASK_BATCH_SIZE;
+        if (aidx_begin >= ans_len_size) {return;}
+        if (aidx_end > ans_len_size) aidx_end = ans_len_size;
         for (int aidx = aidx_begin; aidx < aidx_end; ++aidx){
-            if (aidx >= ans_len_size) {return;}
             const int head = ans_head[aidx];
             const int len = ans_len[aidx];
             const auto idx = len - MIN_PATH_LENGTH;
-            int write_offset = ans_write_addr[aidx];
+            char * write_offset = out_buff + ans_write_addr[aidx];
             int_std start_point = ans_start_point[aidx];
             int_std thread_id = handle_thread_id[head];
             const auto & real_a = real_ans[thread_id][idx];
-            const int_std end_point = start_point + ans_pool[idx][head] * len;
+            const int_std end_point = start_point + ans_pool[idx][head].ans_num * len;
             for (;start_point < end_point; start_point += len){
                 const int a = real_a[start_point];
-                memcpy(out_buff + write_offset, id_str[a] + 1, id_str[a][0]);
-                write_offset += id_str[a][0];
-                for (unsigned int i = start_point + 1; i < start_point + len; ++i){
-                    out_buff[write_offset++] = ',';
+                memcpy(write_offset, id_str_s[a] + 1, id_str_s[a][0]);
+                write_offset += id_str_s[a][0];
+               
+                const int b = real_a[start_point + 1];
+                memcpy(write_offset, id_str_s[b] + 1, id_str_s[b][0]);
+                write_offset += id_str_s[b][0];
+
+                const int tmp_end_point = start_point + len - 1;
+                for (unsigned int i = start_point + 2; i < tmp_end_point; ++i){
                     const int a = real_a[i];
-                    memcpy(out_buff + write_offset, id_str[a] + 1, id_str[a][0]);
-                    write_offset += id_str[a][0];
+                    memcpy(write_offset, id_str_s[a] + 1, id_str_s[a][0]);
+                    write_offset += id_str_s[a][0];
                 }
-                out_buff[write_offset++] = '\n';
+                
+                const int c = real_a[tmp_end_point];
+                memcpy(write_offset, id_str_r[c] + 1, id_str_r[c][0]);
+                write_offset += id_str_r[c][0];
+                //out_buff[write_offset++] = '\n';
             }
         }
     }
@@ -713,7 +897,7 @@ void mmap_multi_thread_writer(const int_std writer_id,
 
 void mmap_write_data(char file_name[], const int graph_size){
     #ifdef REQUIRE_DEBUG_INFO
-    auto beg_t = clock();
+    auto start = chrono::steady_clock::now();
     #endif
     int_std total_ans, out_size;
     //ans_len.reserve(MAX_ANS_NUM);
@@ -722,9 +906,10 @@ void mmap_write_data(char file_name[], const int graph_size){
     write_count(graph_size, total_ans, out_size);
     //cout << "file size should be: " << out_size << endl;
 
-    int fd = open(file_name, O_CREAT|O_RDWR|O_TRUNC, 0666);
+    int fd = open(file_name, O_CREAT|O_RDWR, 0666);
     int flag = ftruncate(fd, out_size);
     char * out_buff = (char*) mmap(NULL, out_size, PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_NONBLOCK, fd, 0);
+    //char * out_buff = (char*) mmap(NULL, out_size, PROT_WRITE, MAP_PRIVATE, fd, 0);
 
     string total_ans_str = to_string(total_ans);
     int buff_used = total_ans_str.length();
@@ -732,9 +917,13 @@ void mmap_write_data(char file_name[], const int graph_size){
     out_buff[buff_used++] = '\n';
     int ans_num_offset = buff_used;
 
+
     #ifdef REQUIRE_DEBUG_INFO
-    cout << "mmap write count time cost : " << 1. * (clock() - beg_t) / CLOCKS_PER_SEC << endl;
-    cout << "total_ans: " << total_ans << endl;
+    {
+        auto end = std::chrono::steady_clock::now();
+        chrono::duration<double> elapsed_seconds = end-start;
+        cout << "mmap write count time cost : " << elapsed_seconds.count() << "s\n";
+    }
     #endif
 
     thread threads[WRITER_THREAD_NUM];
@@ -748,24 +937,37 @@ void mmap_write_data(char file_name[], const int graph_size){
     }
 
     #ifdef REQUIRE_DEBUG_INFO
-    cout << "mmap write time cost       : " << 1. * (clock() - beg_t) / CLOCKS_PER_SEC << endl;
-    cout << "total ans is : " << total_ans << endl; 
+    {
+        auto end = std::chrono::steady_clock::now();
+        chrono::duration<double> elapsed_seconds = end-start;
+        cout << "mmap write time cost       : " << elapsed_seconds.count() << "s\n";
+        cout << "total_ans: " << total_ans << endl;
+    }
     #endif
     //munmap(out_buff, out_size);
     //_exit(0);
     close(fd);
 }
 
+#ifdef REQUIRE_DEBUG_INFO
 void memory_report(){
 #define INFO_M(x) cout << #x << " is: " << x / (1000 * 1000) << "M" << endl
     INFO_M(MAX_ID_NUM);
     INFO_M(MAX_DATA_RECORD_SIZE);
     INFO_M(MAX_ANS_NUM);
     INFO_M(MAX_GRAPH_SIZE);
+    //auto ans_size = sizeof(real_ans3) + sizeof(real_ans4) +  sizeof(real_ans5) + sizeof(real_ans6) +  sizeof(real_ans7);
+    auto ans_size = sizeof(real_ans_buff);
+    //cout << "real_ans memory size is: " << (sizeof(real_ans) >> 20) << "MB" << endl;
+ 
     cout << "Graph memory size is: " << (sizeof(graph) >> 20) << "MB" << endl;
-    cout << "real_ans memory size is: " << (sizeof(real_ans) >> 20) << "MB" << endl;
-    cout << "NodeInfo memory size is " << (sizeof(node_info) >> 20) << "MB" << endl;
+    //cout << "real_ans memory size is: " << (sizeof(real_ans) >> 20) << "MB" << endl;
+    cout << "real_ans memory size is: " << (ans_size >> 20) << "MB" << endl;
+    cout << "NodeInfo memory size is " << (sizeof(global_node_info) >> 20) << "MB" << endl;
+
+    cout << "==============================================================" << endl;
 }
+#endif
 
 inline void write_data(char * file_name){
     mmap_write_data(file_name, ids_size);
@@ -774,30 +976,47 @@ inline void write_data(char * file_name){
 int main(){
     #ifdef REQUIRE_DEBUG_INFO
     memory_report();
-    #endif
-
-    #ifdef REQUIRE_DEBUG_INFO
-    auto beg_t = clock();
+    auto start = chrono::steady_clock::now();
     #endif
 
     // Delete compile warning!
     char input_file_name[] = INPUT_FILE_NAME;
-    quick_input(input_file_name);
+    //quick_input(input_file_name);
+    //mmap_input(input_file_name);
+    multi_thead_input(input_file_name);
 
     #ifdef REQUIRE_DEBUG_INFO
-    cout << "Finished input! The unique id number is: " << ids_size << endl;
-    cout << "Input time cost       : " << 1. * (clock() - beg_t) / CLOCKS_PER_SEC << endl;
+    {
+        cout << "Finished input! The unique id number is: " << ids_size << endl;
+        auto end = std::chrono::steady_clock::now();
+        chrono::duration<double> elapsed_seconds = end-start;
+        cout << "After Input, time cost            : " << elapsed_seconds.count() << "s\n";
+    }
     #endif
 
     preprocess();
+    //exit(0);
     #ifdef REQUIRE_DEBUG_INFO
-    cout << "preprocess time cost       : " << 1. * (clock() - beg_t) / CLOCKS_PER_SEC << endl;
+    {
+        auto end = std::chrono::steady_clock::now();
+        chrono::duration<double> elapsed_seconds = end-start;
+        cout << "After Preprocess, time cost       : " << elapsed_seconds.count() << "s\n";
+    }
     #endif
+    //exit(0);
     
     solve();
 
     char output_file_name [] = OUTPUT_FILE_NAME;
     write_data(output_file_name);
+
+    #ifdef REQUIRE_DEBUG_INFO
+    {
+        auto end = std::chrono::steady_clock::now();
+        chrono::duration<double> elapsed_seconds = end-start;
+        cout << "Total running time : " << elapsed_seconds.count() << "s\n";
+    }
+    #endif
 
     return 0;
 }
