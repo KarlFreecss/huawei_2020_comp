@@ -479,12 +479,18 @@ char ALIGNED id_len[MAX_ID_NUM];
 void id_assign(){
     for (int i = 0; i < ids_size; ++i){
         hash_mapping(ids[i], i, id_hash_table_flag, id_hash_table_key, id_hash_table_value);
+    }
+}
+
+void build_str(const int ids_begin, const int ids_end){
+    for (int i = ids_begin; i < ids_end; ++i){
         const string str = to_string(ids[i]);
         id_len[i] = str.length() + 1;
         
         id_str_r[i][0] = str.length() + 1;
         memcpy(id_str_r[i] + 1, str.c_str(), id_len[i]);
         id_str_r[i][id_len[i]] = '\n';
+
 
         id_str_s[i][0] = str.length() + 1;
         memcpy(id_str_s[i] + 1, str.c_str(), id_len[i]);
@@ -504,6 +510,10 @@ void id_remapping(int thread_id){
         out_degree[d.a] += 1;
         in_degree[d.b] += 1;
     }
+    int build_id_str_per_block = ids_size / THREAD_NUM + 1;
+    const int ids_begin = build_id_str_per_block * thread_id;
+    const int ids_end = min(ids_size, build_id_str_per_block * (thread_id + 1));
+    build_str(ids_begin, ids_end);
 }
 
 void multi_thread_reid(){
