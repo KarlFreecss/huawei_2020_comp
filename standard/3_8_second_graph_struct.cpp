@@ -1,5 +1,5 @@
 /*
-Tb_c;//ODO:
+TODO:
     0. still need know the cost of (input, preprocess, search, output) of online data;
     1. re-id (maybe need test : tarjan and re-id)
     2. more good align of graph data;
@@ -104,8 +104,8 @@ const int THREAD_NUM            = 4;
 const int WRITER_THREAD_NUM     = 4;
 const int MAX_ID_STRING_LENGTH  = 12; //log(2 ** 32) + 1
 const int ID_HASH_TABLE_SIZE    = 12345701; // MAX_ID_NUM * 2 * 7, bigger is better;
-const int JUMP_TABLE_SIZE       = 16384;
-const int JUMP_PATH_PER_NODE    = 1024;
+
+
 const int second_coef           = 128;
 
 struct EdgeData{
@@ -711,31 +711,23 @@ struct BackwardPath{
 
 uint_byte used_pool[THREAD_NUM][MAX_ID_NUM];
 uint_byte handle_thread_id[MAX_ID_NUM];
-int global_jump_status[THREAD_NUM][MAX_ID_NUM];
-BackwardPath ALIGNED global_jump_table[THREAD_NUM][JUMP_TABLE_SIZE][JUMP_PATH_PER_NODE];
-
-#define idx2status(n) ((n) << 16)
-#define status2idx(n) ((n) >> 16)
-#define status2len(n) ((n) & 0xffff)
 
 //inline
 void quick_jump(int_std head, 
                 int_std mid,
-                BackwardPath * jump,
-                int jump_length,
+                vector<vector<BackwardPath>> & jump,
                 const int_std * node_list,
                 uint_byte used[],
                 int_std thread_id,
-                long long mid_amount,
+                long long amount_mid,
                 long long head_amount){
     const int idx = node_list[0] + 1;
     const auto & jp = jump[mid];
     auto & real_a = real_ans[thread_id][idx];
     auto & real_a_len = real_ans_size[thread_id][idx];
-    for (int j = 0; j < jump_length; j++){
-        const auto & path = jump[j];
+    for (const auto & path : jp){
         if (used[path.first] == false and used[path.second] == false \
-            and amount_check(mid_amount, path.first_amount)
+            and amount_check(amount_mid, path.first_amount)
             and amount_check(path.second_amount, head_amount)){
 
         	int length = 0;
@@ -760,15 +752,13 @@ void quick_jump(int_std head,
 }
 
 void head_quick_jump(int_std head, 
-                BackwardPath * jump,
-                int jump_length,
+                vector<vector<BackwardPath>> & jump,
                 int_std thread_id){
     const int idx = 0;
     const auto & jp = jump[head];
     auto & real_a = real_ans[thread_id][idx];
     auto & real_a_len = real_ans_size[thread_id][idx];
-    for (int j = 0; j < jump_length; j++){
-        const auto & path = jump[j];
+    for (const auto & path : jp){
         int length = 0;
         ++ans_pool[0][head].ans_num;
         real_a[real_a_len] = head;
@@ -794,18 +784,17 @@ void head_quick_jump(int_std head,
                 const auto x = graph[itr_##x].v;\
                 const auto amount_##x = graph[itr_##x].amount;
 
-#define TRY_QUICK_JUMP(head, v, amount_head) if (unlikely(jump_status[v] > 0))\
-                quick_jump(head, v, jump_table[status2idx(jump_status[v])], status2len(jump_status[v]), \
-                    node_list, used, thread_id, amount_##v, amount_head)
+#define TRY_QUICK_JUMP(head, v, amount_head) if(jump_update_flag[v])\
+                                                            quick_jump(head, v, jump, node_list, used, thread_id, amount_##v, amount_head)
 
 void search(int_std head,
-            BackwardPath (*jump_table)[JUMP_PATH_PER_NODE],
-            int * jump_status,
+            vector<vector<BackwardPath>> & jump,
+            const vector<bool> & jump_update_flag,
             uint_byte * used,
             int_std thread_id,
             NodeInfo * node_info,
             NodeInfo * second_graph_second_info){
-    if (jump_status[head] > 0) head_quick_jump(head, jump_table[status2idx(jump_status[head])], status2len(jump_status[head]), thread_id);
+    if (jump_update_flag[head]) head_quick_jump(head, jump, thread_id);
     int_std node_list[PATH_LENGTH_NUM];
     int_std & node_list_len = node_list[0];
     node_list_len = 0; 
@@ -819,6 +808,7 @@ void search(int_std head,
         EDGE_ITR_INIT(u, w);
         for (;itr_u < itr_end_u; ++itr_u){
             GET_NODE_INFO(u);
+
             if (!amount_check(amount_w, amount_u)) continue;
             used[u] = 1;
             TRY_QUICK_JUMP(head, u, amount_w);
@@ -856,8 +846,8 @@ void search(int_std head,
 	    			for (;itr_l < itr_end_l; ++itr_l){
                         const auto l = second_graph[itr_l].v;
                         auto amount_l = second_graph[itr_l].amount;
-	    				if (unlikely(jump_status[l] > 0 and !used[l])) {
-	    					quick_jump(head, l, jump_table[status2idx(jump_status[l])], status2len(jump_status[l]), \
+	    				if (unlikely(jump_update_flag[l] > 0 and !used[l])) {
+	    					quick_jump(head, l, jump, \
                                 node_list, used, thread_id, amount_l, amount_w);
 	    				}
                     }
@@ -876,8 +866,8 @@ void search(int_std head,
 }
 
 int init_jump(int_std head, 
-            BackwardPath (*jump_table)[JUMP_PATH_PER_NODE],
-            int * jump_status,
+            vector<vector<BackwardPath>> & jump, 
+            vector<bool> & jump_update_flag, 
             vector<int_std> & init_node){
     int jump_num = 0;
     init_node.clear();
@@ -893,44 +883,33 @@ int init_jump(int_std head,
 
             const auto v = rev_graph[itr_v].v;
             const auto amount_v = rev_graph[itr_v].amount;
-            if (!amount_check(amount_v, amount_u)) continue;
 
-            auto itr_mid = rev_node_info[v].first;
-            const auto itr_mid_end = rev_node_info[v].last;
-            for (; itr_mid < itr_mid_end && rev_graph[itr_mid].v >= head; ++itr_mid){
-                const auto mid = rev_graph[itr_mid].v;
-                const auto amount_mid = rev_graph[itr_mid].amount;
-                if (amount_check(amount_mid, amount_v) == false) continue;
-                if (mid != u){
-                    if (head == mid && !amount_check(amount_u, amount_mid)) continue;
-                    if (jump_status[mid] == 0){
-                            jump_status[mid] = idx2status(jump_num);
+            if (amount_check(amount_v, amount_u)){
+                auto itr_mid = rev_node_info[v].first;
+                const auto itr_mid_end = rev_node_info[v].last;
+
+                for (; itr_mid < itr_mid_end && rev_graph[itr_mid].v >= head; ++itr_mid){
+                    const auto mid = rev_graph[itr_mid].v;
+                    const auto amount_mid = rev_graph[itr_mid].amount;
+                    if (amount_check(amount_mid, amount_v) && mid != u){
+                        if (head == mid && !amount_check(amount_u, amount_mid)) continue;
+                        if (!jump_update_flag[mid]){
+                            jump_update_flag[mid] = true;
+                            jump[mid].clear();
                             init_node.emplace_back(mid);
                             jump_num += 1;
-                            #ifdef TEST
-                                if (jump_num == JUMP_TABLE_SIZE) {
-                                    cout << "jump table full [1]" << endl;
-                                    exit(-1);
-                                }
-                            #endif
                         }
-                        jump_table[status2idx(jump_status[mid])][status2len(jump_status[mid])] = (BackwardPath){v, u, amount_mid, amount_u};
-                        jump_status[mid]++;
-                        #ifdef TEST
-                            if (status2len(jump_status[mid]) == JUMP_PATH_PER_NODE) {
-                                cout << "jump table full [2]" << endl;
-                                exit(-2);
-                            }
-                        #endif
+                        jump[mid].emplace_back((BackwardPath){v, u, amount_mid, amount_u});
+                    }
                 }
+                //TODO, maybe in here can get path3 directly
             }
 
         }
 
     }
     for (const auto & mid : init_node){
-        const int s = jump_status[mid];
-        if (status2len(s) > 1) {sort(jump_table[status2idx(s)], jump_table[status2idx(s)] + status2len(s));}
+        if (jump[mid].size() > 1) {sort(jump[mid].begin(), jump[mid].end());}
     }
     return jump_num;
 }
@@ -944,8 +923,7 @@ void run_job(int_std thread_id, int_std graph_size){
     memcpy(thread_node_info, global_node_info, graph_size * sizeof(NodeInfo));
     memcpy(second_graph_second_info[thread_id], global_second_graph_second_info, tD_size * sizeof(NodeInfo));
     vector<bool> jump_update_flag(graph_size, false);
-    auto jump_table = global_jump_table[thread_id];
-    auto jump_status = global_jump_status[thread_id];
+    vector<vector<BackwardPath>> jump_pool(graph_size);
 
     auto & used = used_pool[thread_id];
     for(;;){
@@ -954,12 +932,12 @@ void run_job(int_std thread_id, int_std graph_size){
         if (aidx_begin >= graph_size) {return;}
         if (aidx_end > graph_size) aidx_end = graph_size;
         for (int i = aidx_begin; i < aidx_end; ++i) {
-            const int jump_num = init_jump(i, jump_table, jump_status, init_node);
+            const int jump_num = init_jump(i, jump_pool, jump_update_flag, init_node);
             handle_thread_id[i] = thread_id;
             if (jump_num > 0){
-                search(i, jump_table, jump_status, used, thread_id, thread_node_info, second_graph_second_info[thread_id]);
+                search(i, jump_pool, jump_update_flag, used, thread_id, thread_node_info, second_graph_second_info[thread_id]);
                 for (const auto & mid : init_node){
-                    jump_status[mid] = 0;
+                    jump_update_flag[mid] = false;
                 }
             }
         }
@@ -1136,7 +1114,6 @@ void memory_report(){
     cout << "Second Graph Info is: " << (sizeof(second_graph_info) >> 20) << "MB" << endl;
     cout << "Second Graph Second Info is: " << (sizeof(global_second_graph_second_info) >> 20) << "MB" << endl;
     cout << "Second Graph is: " << (sizeof(second_graph) >> 20) << "MB" << endl;
-    cout << "Global Jump Table is: " << (sizeof(global_jump_table) >> 20) << "MB" << endl;
 
 
     cout << "==============================================================" << endl;
@@ -1191,7 +1168,6 @@ int main(){
         cout << "Total running time : " << elapsed_seconds.count() << "s\n";
     }
     #endif
-
     return 0;
 }
 
