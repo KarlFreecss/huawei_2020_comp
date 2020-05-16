@@ -366,7 +366,7 @@ void handle_input_data(char * addr_begin, char * addr_end, int thread_id){
         const int b_c = get_num(in_buff, used_len);
         int s_c = 0;
         if (in_buff[used_len] == '.') s_c = get_num(in_buff, used_len);
-        const long long c = b_c;//b_c * 100ll + s_c;
+        const long long c = b_c * 100ll + s_c;
         PUSH_BACK(tD, tD_size, ((Data){a,b,c}));
         if (hash_insert(a, id_hash_table_flag, id_hash_table_key) >= 0) PUSH_BACK(ids, ids_size, a);
         if (hash_insert(b, id_hash_table_flag, id_hash_table_key) >= 0) PUSH_BACK(ids, ids_size, b);
