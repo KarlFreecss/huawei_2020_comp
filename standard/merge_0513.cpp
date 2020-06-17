@@ -89,14 +89,14 @@ struct NodeInfo{
 
 //#define amount_check(X,Y) (((X)<=5ll*(Y))&&((Y)<=3ll*(X)))
 inline
-bool amount_check(long long X, long long Y){
+bool amount_check(int X, int Y){
     return (X <= 5ll * Y) && (Y <= 3ll * X);
 }
 
 const int MAX_DATA_RECORD_SIZE  = 2000000;
 const int MAX_ANS_NUM           = 20000000;
 const int MIN_PATH_LENGTH       = 3;
-const int MAX_PATH_LENGTH       = 8;
+const int MAX_PATH_LENGTH       = 7;
 const int MAX_ID_NUM            = MAX_DATA_RECORD_SIZE * 2; // Every record has two relatived account
 const int PATH_LENGTH_NUM       = MAX_PATH_LENGTH - MIN_PATH_LENGTH + 1;
 
@@ -104,35 +104,16 @@ const int THREAD_NUM            = 4;
 const int WRITER_THREAD_NUM     = 4;
 const int MAX_ID_STRING_LENGTH  = 12; //log(2 ** 32) + 1
 const int ID_HASH_TABLE_SIZE    = 12345701; // MAX_ID_NUM * 2 * 7, bigger is better;
-
-
-const int second_coef           = 128;
-
-struct EdgeData{
-    int_std v;
-    long long amount;
-
-    bool operator < (const EdgeData & A) const {
-        return v < A.v;
-    }
-};
-
-struct RevEdgeData{
-    int_std v;
-    long long amount;
-
-    bool operator < (const RevEdgeData & A) const {
-        return v > A.v;
-    }
-};
+const int JUMP_TABLE_SIZE       = 16384;
+const int JUMP_PATH_PER_NODE    = 1024;
+const int second_coef           = 256;
 
 int second_graph_info[MAX_ID_NUM];
 int partial_second_graph_info[THREAD_NUM][MAX_ID_NUM];
 NodeInfo partial_second_graph_second_info[THREAD_NUM][MAX_DATA_RECORD_SIZE];
 NodeInfo global_second_graph_second_info[MAX_DATA_RECORD_SIZE];
 NodeInfo second_graph_second_info[THREAD_NUM][MAX_DATA_RECORD_SIZE];
-
-EdgeData second_graph[MAX_DATA_RECORD_SIZE * second_coef];
+int second_graph[MAX_DATA_RECORD_SIZE * second_coef];
 int partial_node_info_count[THREAD_NUM];
 int partial_node_info_second_count[THREAD_NUM];
 
@@ -149,43 +130,37 @@ int partial_node_info_second_count[THREAD_NUM];
 //int_std real_ans5[THREAD_NUM][MAX_ANS_NUM * 5];
 //int_std real_ans6[THREAD_NUM][MAX_ANS_NUM * 6];
 //int_std real_ans7[THREAD_NUM][MAX_ANS_NUM * 7];
-
-const int MAX_ANS_BUFFER_SIZE = MAX_ANS_NUM * 0.7;
-int_std real_ans_buff[THREAD_NUM][MAX_ANS_BUFFER_SIZE * (3 + 4 + 5 + 6 + 7 + 8)];
+int_std real_ans_buff[THREAD_NUM][MAX_ANS_NUM * (3 + 4 + 5 + 6 + 7)];
 int_std * real_ans3[THREAD_NUM] = {real_ans_buff[0],
                                    real_ans_buff[1], 
                                    real_ans_buff[2], 
                                    real_ans_buff[3]};
-int_std * real_ans4[THREAD_NUM] = {real_ans_buff[0] + MAX_ANS_BUFFER_SIZE * 3, 
-                                   real_ans_buff[1] + MAX_ANS_BUFFER_SIZE * 3,
-                                   real_ans_buff[2] + MAX_ANS_BUFFER_SIZE * 3,
-                                   real_ans_buff[3] + MAX_ANS_BUFFER_SIZE * 3};
-int_std * real_ans5[THREAD_NUM] = {real_ans_buff[0] + MAX_ANS_BUFFER_SIZE * (3 + 4), 
-                                   real_ans_buff[1] + MAX_ANS_BUFFER_SIZE * (3 + 4),
-                                   real_ans_buff[2] + MAX_ANS_BUFFER_SIZE * (3 + 4),
-                                   real_ans_buff[3] + MAX_ANS_BUFFER_SIZE * (3 + 4)};
-int_std * real_ans6[THREAD_NUM] = {real_ans_buff[0] + MAX_ANS_BUFFER_SIZE * (3 + 4 + 5), 
-                                   real_ans_buff[1] + MAX_ANS_BUFFER_SIZE * (3 + 4 + 5),
-                                   real_ans_buff[2] + MAX_ANS_BUFFER_SIZE * (3 + 4 + 5),
-                                   real_ans_buff[3] + MAX_ANS_BUFFER_SIZE * (3 + 4 + 5)};
-int_std * real_ans7[THREAD_NUM] = {real_ans_buff[0] + MAX_ANS_BUFFER_SIZE * (3 + 4 + 5 + 6), 
-                                   real_ans_buff[1] + MAX_ANS_BUFFER_SIZE * (3 + 4 + 5 + 6),
-                                   real_ans_buff[2] + MAX_ANS_BUFFER_SIZE * (3 + 4 + 5 + 6),
-                                   real_ans_buff[3] + MAX_ANS_BUFFER_SIZE * (3 + 4 + 5 + 6)};
-int_std * real_ans8[THREAD_NUM] = {real_ans_buff[0] + MAX_ANS_BUFFER_SIZE * (3 + 4 + 5 + 6 + 7), 
-                                   real_ans_buff[1] + MAX_ANS_BUFFER_SIZE * (3 + 4 + 5 + 6 + 7),
-                                   real_ans_buff[2] + MAX_ANS_BUFFER_SIZE * (3 + 4 + 5 + 6 + 7),
-                                   real_ans_buff[3] + MAX_ANS_BUFFER_SIZE * (3 + 4 + 5 + 6 + 7)};
+int_std * real_ans4[THREAD_NUM] = {real_ans_buff[0] + MAX_ANS_NUM * 3, 
+                                   real_ans_buff[1] + MAX_ANS_NUM * 3,
+                                   real_ans_buff[2] + MAX_ANS_NUM * 3,
+                                   real_ans_buff[3] + MAX_ANS_NUM * 3};
+int_std * real_ans5[THREAD_NUM] = {real_ans_buff[0] + MAX_ANS_NUM * (3 + 4), 
+                                   real_ans_buff[1] + MAX_ANS_NUM * (3 + 4),
+                                   real_ans_buff[2] + MAX_ANS_NUM * (3 + 4),
+                                   real_ans_buff[3] + MAX_ANS_NUM * (3 + 4)};
+int_std * real_ans6[THREAD_NUM] = {real_ans_buff[0] + MAX_ANS_NUM * (3 + 4 + 5), 
+                                   real_ans_buff[1] + MAX_ANS_NUM * (3 + 4 + 5),
+                                   real_ans_buff[2] + MAX_ANS_NUM * (3 + 4 + 5),
+                                   real_ans_buff[3] + MAX_ANS_NUM * (3 + 4 + 5)};
+int_std * real_ans7[THREAD_NUM] = {real_ans_buff[0] + MAX_ANS_NUM * (3 + 4 + 5 + 6), 
+                                   real_ans_buff[1] + MAX_ANS_NUM * (3 + 4 + 5 + 6),
+                                   real_ans_buff[2] + MAX_ANS_NUM * (3 + 4 + 5 + 6),
+                                   real_ans_buff[3] + MAX_ANS_NUM * (3 + 4 + 5 + 6)};
 int_std * real_ans[THREAD_NUM][PATH_LENGTH_NUM] = {
-    real_ans3[0], real_ans4[0], real_ans5[0], real_ans6[0], real_ans7[0], real_ans8[0],
-    real_ans3[1], real_ans4[1], real_ans5[1], real_ans6[1], real_ans7[1], real_ans8[1],
-    real_ans3[2], real_ans4[2], real_ans5[2], real_ans6[2], real_ans7[2], real_ans8[2],
-    real_ans3[3], real_ans4[3], real_ans5[3], real_ans6[3], real_ans7[3], real_ans8[3]
+    real_ans3[0], real_ans4[0], real_ans5[0], real_ans6[0], real_ans7[0],
+    real_ans3[1], real_ans4[1], real_ans5[1], real_ans6[1], real_ans7[1],
+    real_ans3[2], real_ans4[2], real_ans5[2], real_ans6[2], real_ans7[2],
+    real_ans3[3], real_ans4[3], real_ans5[3], real_ans6[3], real_ans7[3]
     };//[MAX_ANS_NUM * MAX_PATH_LENGTH];
 int_std real_ans_size[THREAD_NUM][PATH_LENGTH_NUM];
 struct {
-	int ans_num;
-	int ans_len;
+    int ans_num;
+    int ans_len;
 } ans_pool[PATH_LENGTH_NUM][MAX_ID_NUM];
 
 int_std ans_len[MAX_ANS_NUM];
@@ -247,29 +222,28 @@ int_std hash_query(int_std id, uint_byte * id_hash_table_flag, uint_std * id_has
 /////////////////////////////////////////////////
 
 struct Data{
-    int a, b;
-    long long c;
+    int a, b, c;
 };
 
 struct RevData{
-    int b, a;
-    long long c;
+    int b, a, c;
 };
 
-const int SINGLE_CACHE_LINE_EDGE_NUM = CACHE_LINE_SIZE / (sizeof(EdgeData));
-const int MAX_GRAPH_SIZE = (MAX_ID_NUM) * SINGLE_CACHE_LINE_EDGE_NUM + MAX_DATA_RECORD_SIZE;
+const int SINGLE_CACHE_LINE_EDGE_NUM = CACHE_LINE_SIZE / (sizeof(int_std));
+const int MAX_GRAPH_SIZE = (MAX_ID_NUM) * SINGLE_CACHE_LINE_EDGE_NUM + MAX_DATA_RECORD_SIZE * 3;
 
-EdgeData ALIGNED graph[MAX_GRAPH_SIZE];
+
+int_std ALIGNED graph[MAX_GRAPH_SIZE];
 NodeInfo ALIGNED global_node_info[MAX_ID_NUM];
 
-RevEdgeData ALIGNED rev_graph[MAX_GRAPH_SIZE];
+int_std ALIGNED rev_graph[MAX_GRAPH_SIZE];
 NodeInfo ALIGNED rev_node_info[MAX_ID_NUM];
 
 Data tD[MAX_DATA_RECORD_SIZE];
 int tD_size;
 
 inline
-void graph_node_edge_init(NodeInfo * node_info, int * nums, int valid_graph_size, int * split_point){
+void graph_node_edge_init(int_std * graph, NodeInfo * node_info, int * nums, int valid_graph_size, int * split_point){
     int split_point_array_idx = 1;
     int split_block_require = tD_size / THREAD_NUM + 1;
     int split_require_target = split_block_require;
@@ -280,7 +254,7 @@ void graph_node_edge_init(NodeInfo * node_info, int * nums, int valid_graph_size
         if (unlikely(num == 0)){
             node_info[idx].first = node_info[idx - 1].first;
         } else {
-            int store_size = ((num - 1) / SINGLE_CACHE_LINE_EDGE_NUM + 1) * SINGLE_CACHE_LINE_EDGE_NUM;
+            int store_size = ((2 * num - 1) / SINGLE_CACHE_LINE_EDGE_NUM + 1) * SINGLE_CACHE_LINE_EDGE_NUM;
             node_info[idx].first = node_info[idx - 1].first + store_size;
             if (total_num += num){
                 if (total_num >= split_require_target){
@@ -294,22 +268,42 @@ void graph_node_edge_init(NodeInfo * node_info, int * nums, int valid_graph_size
     split_point[THREAD_NUM] = valid_graph_size;
 }
 
-template<class T, class T2>
+template<class T>
 inline
-void graph_node_edge_add(T2 * graph, NodeInfo * node_info, Data * tD, int tD_size){
+void graph_node_edge_add(int_std * graph, NodeInfo * node_info, Data * tD, int tD_size){
     for (int i = 0; i < tD_size; ++i){
         const auto d = (T *)(tD + i);
         int & end_idx = node_info[d->a].last;
-        graph[end_idx++] = (T2){d->b, d->c};
+        graph[end_idx] = d->b;
+        graph[end_idx + 1] = d->c;
+        end_idx += 2;
     }
 }
 
+struct EdgeData{
+    int_std receiver;
+    int_std amount;
+
+    bool operator < (const EdgeData & A) const {
+        return receiver < A.receiver;
+    }
+};
+
+struct RevEdgeData{
+    int_std receiver;
+    int_std amount;
+
+    bool operator < (const RevEdgeData & A) const {
+        return receiver > A.receiver;
+    }
+};
+
 template<class T>
 inline 
-void graph_node_edge_sort(T * graph, NodeInfo * node_info, int valid_graph_size){
+void graph_node_edge_sort(int_std * graph, NodeInfo * node_info, int valid_graph_size){
     for (int i = 0; i < valid_graph_size; ++i){
         const int first = node_info[i].first, last = node_info[i].last;
-        if (last - first > 1) sort((graph + first), (graph + last));
+        if (last - first > 2) sort((T *)(graph + first), (T *)(graph + last));
     }
 }
 
@@ -317,18 +311,12 @@ Data partial_tD[THREAD_NUM][MAX_DATA_RECORD_SIZE];
 int partial_tD_size[THREAD_NUM];
 
 inline
-long long get_num(char buff[], int_std & used_len){
+int_std get_num(char buff[], int_std & used_len){
     while (buff[used_len] < '0') ++used_len;
     int_std ret = buff[used_len++] - '0';
     while (buff[used_len] >= '0') {
         ret = ret * 10 + buff[used_len++] - '0';
     }
-    //if (id_len[ret] == 0){
-    //    const int len = used_len - begin_used_len;
-    //    memcpy(id_str[ret] + 1, buff + begin_used_len, len);
-    //    id_len[ret] = len;
-    //    id_str[ret][0] = len;
-    //}
     return ret;
 }
 
@@ -363,11 +351,7 @@ void handle_input_data(char * addr_begin, char * addr_end, int thread_id){
     while (data_len - used_len > 3){
         const int a = get_num(in_buff, used_len);
         const int b = get_num(in_buff, used_len);
-        const long long b_c = get_num(in_buff, used_len);
-        long long s_c = 0;
-        if (in_buff[used_len] == '.') s_c = get_num(in_buff, used_len);
-        const long long c = b_c * 100ll + s_c;
-        if (a == b) continue;
+        const int c = get_num(in_buff, used_len);
         PUSH_BACK(tD, tD_size, ((Data){a,b,c}));
         if (hash_insert(a, id_hash_table_flag, id_hash_table_key) >= 0) PUSH_BACK(ids, ids_size, a);
         if (hash_insert(b, id_hash_table_flag, id_hash_table_key) >= 0) PUSH_BACK(ids, ids_size, b);
@@ -550,15 +534,15 @@ void reid(){
 }
 
 void build_rev_graph(int * split_point){
-    graph_node_edge_init(rev_node_info, in_degree, ids_size, split_point);
+    graph_node_edge_init(rev_graph, rev_node_info, in_degree, ids_size, split_point);
     graph_node_edge_add<RevData>(rev_graph, rev_node_info, tD, tD_size);
-    graph_node_edge_sort(rev_graph, rev_node_info, ids_size);
+    graph_node_edge_sort<RevEdgeData>(rev_graph, rev_node_info, ids_size);
 }
 
 void build_graph(int * split_point){
-    graph_node_edge_init(global_node_info, out_degree, ids_size, split_point);
+    graph_node_edge_init(graph, global_node_info, out_degree, ids_size, split_point);
     graph_node_edge_add<Data>(graph, global_node_info, tD, tD_size);
-    graph_node_edge_sort(graph, global_node_info, ids_size);
+    graph_node_edge_sort<EdgeData>(graph, global_node_info, ids_size);
 }
 
 void build_second_graph(int head_ids_begin,
@@ -566,7 +550,7 @@ void build_second_graph(int head_ids_begin,
                         int thread_id){
     int * second_graph_info = partial_second_graph_info[thread_id];
     NodeInfo * second_graph_second_info = partial_second_graph_second_info[thread_id];
-    EdgeData * second_graph = (EdgeData *)real_ans_buff[thread_id];
+    int * second_graph = real_ans_buff[thread_id];
     //TODO: IMPOSSIBLE optimal
     int node_info_count = 0;
     int node_info_second_count = 0;
@@ -577,19 +561,21 @@ void build_second_graph(int head_ids_begin,
 
         second_graph_info[head - head_ids_begin] = node_info_count;
 
-        for (; itr_u < itr_u_end; ++itr_u){
-            const auto u = graph[itr_u].v;
-            const auto amount_u = graph[itr_u].amount;
+        for (; itr_u < itr_u_end; itr_u += 2){
+            const auto u = graph[itr_u];
+            const auto amount_u = graph[itr_u + 1];
 
             second_graph_second_info[node_info_count].first = node_info_second_count;
             
             auto itr_v = global_node_info[u].first;
             const auto itr_v_end = global_node_info[u].last;
-            for (; itr_v < itr_v_end; ++itr_v){
-                const auto v = graph[itr_v].v;
-                const auto amount_v = graph[itr_v].amount;
+            for (; itr_v < itr_v_end; itr_v += 2){
+                const auto v = graph[itr_v];
+                const auto amount_v = graph[itr_v + 1];
                 if (amount_check(amount_u, amount_v) and v != head){
-                    second_graph[node_info_second_count++] = (EdgeData){v, amount_v};
+                    second_graph[node_info_second_count] = v;
+                    second_graph[node_info_second_count+1] = amount_v;
+                    node_info_second_count += 2;
                 }
             }
             second_graph_second_info[node_info_count++].last = node_info_second_count;
@@ -608,7 +594,7 @@ void merge_second_graph_imp(int thread_id, int ids_offset, int ids_offset_end, i
             (NodeInfo) {partial_second_graph_second_info[thread_id][i].first + node_info_second_count, 
                         partial_second_graph_second_info[thread_id][i].last + node_info_second_count};
     }
-    memcpy(second_graph + node_info_second_count, real_ans_buff[thread_id], tmp_node_info_second_count * sizeof(EdgeData));
+    memcpy(second_graph + node_info_second_count, real_ans_buff[thread_id], tmp_node_info_second_count * sizeof(int));
 
 }
 
@@ -702,7 +688,7 @@ void preprocess(){
 
 struct BackwardPath{
     int first, second;
-    long long first_amount, second_amount;
+    int first_amount, second_amount;
 
     bool operator<(const BackwardPath & T) const {
         if (first == T.first) return second < T.second;
@@ -712,28 +698,36 @@ struct BackwardPath{
 
 uint_byte used_pool[THREAD_NUM][MAX_ID_NUM];
 uint_byte handle_thread_id[MAX_ID_NUM];
+int global_jump_status[THREAD_NUM][MAX_ID_NUM];
+BackwardPath ALIGNED global_jump_table[THREAD_NUM][JUMP_TABLE_SIZE][JUMP_PATH_PER_NODE];
+
+#define idx2status(n) ((n) << 16)
+#define status2idx(n) ((n) >> 16)
+#define status2len(n) ((n) & 0xffff)
 
 //inline
 void quick_jump(int_std head, 
                 int_std mid,
-                vector<vector<BackwardPath>> & jump,
+                BackwardPath * jump,
+                int jump_length,
                 const int_std * node_list,
                 uint_byte used[],
                 int_std thread_id,
-                long long amount_mid,
-                long long head_amount){
+                int_std mid_amount,
+                int_std head_amount){
     const int idx = node_list[0] + 1;
     const auto & jp = jump[mid];
     auto & real_a = real_ans[thread_id][idx];
     auto & real_a_len = real_ans_size[thread_id][idx];
-    for (const auto & path : jp){
+    for (int j = 0; j < jump_length; j++){
+        const auto & path = jump[j];
         if (used[path.first] == false and used[path.second] == false \
-            and amount_check(amount_mid, path.first_amount)
+            and amount_check(mid_amount, path.first_amount)
             and amount_check(path.second_amount, head_amount)){
 
-        	int length = 0;
+            int length = 0;
             ++ans_pool[idx][head].ans_num;
-            const int node_list_len = node_list[0];             
+            const int node_list_len = node_list[0];
             real_a[real_a_len++] = head;
             length += id_len[head];
             for (int i = 1; i <= node_list_len; ++i){
@@ -753,13 +747,15 @@ void quick_jump(int_std head,
 }
 
 void head_quick_jump(int_std head, 
-                vector<vector<BackwardPath>> & jump,
+                BackwardPath * jump,
+                int jump_length,
                 int_std thread_id){
     const int idx = 0;
     const auto & jp = jump[head];
     auto & real_a = real_ans[thread_id][idx];
     auto & real_a_len = real_ans_size[thread_id][idx];
-    for (const auto & path : jp){
+    for (int j = 0; j < jump_length; j++){
+        const auto & path = jump[j];
         int length = 0;
         ++ans_pool[0][head].ans_num;
         real_a[real_a_len] = head;
@@ -775,142 +771,150 @@ void head_quick_jump(int_std head,
 
 ////#define EDGE_ITR_INIT(head, itr_u, itr_end) auto itr_u = first_edge[head]; const auto itr_u_end = last_edge[head];
 
-#define EDGE_ITR_INIT(pu, pv)\
-                auto itr_##pu = node_info[pv].first;\
-                const auto itr_end_##pu = node_info[pv].last;\
-                for (; itr_ ##pu < itr_end_##pu; ++itr_##pu) {if (graph[itr_##pu].v > head) break;} \
-                node_info[pv].first = itr_ ##pu;
+#define EDGE_ITR_INIT(u, v)\
+                auto itr_##u = node_info[v].first;\
+                const auto itr_end_##u = node_info[v].last;\
+                for (; itr_ ##u < itr_end_##u; itr_##u+=2) {if (graph[itr_##u] > head) break;} \
+                node_info[v].first = itr_ ##u;
 
 #define GET_NODE_INFO(x)\
-                const auto x = graph[itr_##x].v;\
-                const auto amount_##x = graph[itr_##x].amount;
+                const auto x = graph[itr_##x];\
+                const auto amount_##x = graph[itr_##x + 1];
 
-#define TRY_QUICK_JUMP(head, v, amount_head) if(jump_update_flag[v])\
-                                                            quick_jump(head, v, jump, node_list, used, thread_id, amount_##v, amount_head)
+#define TRY_QUICK_JUMP(head, v, amount_head) if (jump_status[v] > 0)\
+                quick_jump(head, v, jump_table[status2idx(jump_status[v])], status2len(jump_status[v]), \
+                    node_list, used, thread_id, amount_##v, amount_head)
 
 void search(int_std head,
-            vector<vector<BackwardPath>> & jump,
-            const vector<bool> & jump_update_flag,
+            BackwardPath (*jump_table)[JUMP_PATH_PER_NODE],
+            int * jump_status,
             uint_byte * used,
             int_std thread_id,
             NodeInfo * node_info,
             NodeInfo * second_graph_second_info){
-    if (jump_update_flag[head]) head_quick_jump(head, jump, thread_id);
-    int_std node_list[PATH_LENGTH_NUM];
+    if (jump_status[head] > 0) head_quick_jump(head, jump_table[status2idx(jump_status[head])], status2len(jump_status[head]), thread_id);
+    int_std node_list[4];
     int_std & node_list_len = node_list[0];
     node_list_len = 0; 
-    EDGE_ITR_INIT(w, head);
-    for (;itr_w < itr_end_w; ++itr_w){
-        GET_NODE_INFO(w);
-        used[w] = 1;
-        TRY_QUICK_JUMP(head, w, amount_w);
-        node_list[++node_list_len] = w;
+    EDGE_ITR_INIT(u, head);
+    for (;itr_u < itr_end_u; itr_u+=2){
+        GET_NODE_INFO(u); //u and amount
+        used[u] = 1;
+        TRY_QUICK_JUMP(head, u, amount_u);
+        node_list[++node_list_len] = u;
+        //EDGE_ITR_INIT(v, u);
+        const auto itr_v_idx = second_graph_info[head] + ((itr_u - global_node_info[head].first) >> 1);
+        auto itr_v = second_graph_second_info[itr_v_idx].first;
+        const auto itr_end_v = second_graph_second_info[itr_v_idx].last;
+        for (; itr_v < itr_end_v; itr_v+=2) {if (second_graph[itr_v] > head) break;}
+        second_graph_second_info[itr_v_idx].first = itr_v;
+        for (; itr_v < itr_end_v; itr_v+= 2){
+            const auto v = second_graph[itr_v];
+            auto amount_v = second_graph[itr_v+1];
+            //GET_NODE_INFO(v);
+            //if (!amount_check(amount_u, amount_v)) continue;
+            used[v] = 1;
+            TRY_QUICK_JUMP(head, v, amount_u);
+            node_list[++node_list_len] = v;
+            EDGE_ITR_INIT(k, v);
+            //const auto itr_k_idx = second_graph_info[u].first + ((itr_v - global_second_graph_second_info[itr_v_idx].first) >> 1);
+            //auto itr_k = second_graph_second_info[itr_k_idx].first;
+            //const auto itr_end_k = second_graph_second_info[itr_k_idx].last;
+            //for (; itr_k < itr_end_k; itr_k+=2) {if (second_graph[itr_k] > head) break;}
+            //second_graph_second_info[itr_k_idx].first = itr_k;
+            for (;itr_k < itr_end_k; itr_k+=2){
+                //const auto k = second_graph[itr_k];
+                //auto amount_k = second_graph[itr_k+1];
+                GET_NODE_INFO(k);
+                if (!amount_check(amount_v, amount_k)) continue;
+                if (k == u) continue;
+                used[k] = 1;
+                TRY_QUICK_JUMP(head, k, amount_u);
+                node_list[++node_list_len] = k;
 
-        EDGE_ITR_INIT(u, w);
-        for (;itr_u < itr_end_u; ++itr_u){
-            GET_NODE_INFO(u);
-
-            if (!amount_check(amount_w, amount_u)) continue;
-            used[u] = 1;
-            TRY_QUICK_JUMP(head, u, amount_w);
-            node_list[++node_list_len] = u;
-
-            const auto itr_v_idx = second_graph_info[w] + ((itr_u - global_node_info[w].first));
-            auto itr_v = second_graph_second_info[itr_v_idx].first;
-            const auto itr_end_v = second_graph_second_info[itr_v_idx].last;
-            for (; itr_v < itr_end_v; ++itr_v) {if (second_graph[itr_v].v > head) break;}
-            second_graph_second_info[itr_v_idx].first = itr_v;
-
-            for (; itr_v < itr_end_v; ++itr_v){
-                const auto v = second_graph[itr_v].v;
-                auto amount_v = second_graph[itr_v].amount;
-
-                if (used[v]) continue;
-                used[v] = 1;
-                TRY_QUICK_JUMP(head, v, amount_w);
-                node_list[++node_list_len] = v;
-                EDGE_ITR_INIT(k, v);
-                for (;itr_k < itr_end_k; ++itr_k){
-                    GET_NODE_INFO(k);
-                    if (!amount_check(amount_v, amount_k)) continue;
-                    if (used[k]) continue;
-                    used[k] = 1;
-                    TRY_QUICK_JUMP(head, k, amount_w);
-                    node_list[++node_list_len] = k;
-
-                    const auto itr_l_idx = second_graph_info[v] + ((itr_k - global_node_info[v].first));
-                    auto itr_l = second_graph_second_info[itr_l_idx].first;
-                    const auto itr_end_l = second_graph_second_info[itr_l_idx].last;
-                    for (; itr_l < itr_end_l; ++itr_l) {if (second_graph[itr_l].v > head) break;}
-                    second_graph_second_info[itr_l_idx].first = itr_l;
-
-	    			for (;itr_l < itr_end_l; ++itr_l){
-                        const auto l = second_graph[itr_l].v;
-                        auto amount_l = second_graph[itr_l].amount;
-	    				if (unlikely(jump_update_flag[l] > 0 and used[l] == false)) {
-	    					quick_jump(head, l, jump, \
-                                node_list, used, thread_id, amount_l, amount_w);
-	    				}
+                //const auto itr_l_idx = second_graph_info[v].first + ((itr_k - global_second_graph_second_info[itr_k_idx].first) >> 1);
+                const auto itr_l_idx = second_graph_info[v] + ((itr_k - global_node_info[v].first) >> 1);
+                auto itr_l = second_graph_second_info[itr_l_idx].first;
+                const auto itr_end_l = second_graph_second_info[itr_l_idx].last;
+                for (; itr_l < itr_end_l; itr_l+=2) {if (second_graph[itr_l] > head) break;}
+                second_graph_second_info[itr_l_idx].first = itr_l;
+                for (;itr_l < itr_end_l; itr_l+=2){
+                    const auto l = second_graph[itr_l];
+                    auto amount_l = second_graph[itr_l+1];
+                        //if (unlikely(jump_status[l] and l != u and l != v)) {
+				//  		quick_jump(head, l, jump, node_list, used, thread_id, amount_l, amount_u);
+                    if (unlikely(jump_status[l] > 0 and l != u and l != v)) {
+                        quick_jump(head, l, jump_table[status2idx(jump_status[l])], status2len(jump_status[l]), \
+                            node_list, used, thread_id, amount_l, amount_u);
                     }
-                    used[k] = 0;
-                    node_list_len = 3;
                 }
-                used[v] = 0;
+                used[k] = 0;
                 node_list_len = 2;
             }
-            used[u] = 0;
+            used[v] = 0;
             node_list_len = 1;
         }
-        used[w] = 0;
+        used[u] = 0;
         node_list_len = 0;
     }
 }
 
 int init_jump(int_std head, 
-            vector<vector<BackwardPath>> & jump, 
-            vector<bool> & jump_update_flag, 
+            BackwardPath (*jump_table)[JUMP_PATH_PER_NODE],
+            int * jump_status,
             vector<int_std> & init_node){
     int jump_num = 0;
     init_node.clear();
     auto itr_u = rev_node_info[head].first;
     const auto itr_u_end = rev_node_info[head].last;
-    for (; itr_u < itr_u_end && rev_graph[itr_u].v > head; ++itr_u){
+    for (; itr_u < itr_u_end && rev_graph[itr_u] > head; itr_u += 2){
 
-        const auto u = rev_graph[itr_u].v;
-        const auto amount_u = rev_graph[itr_u].amount;
+        const auto u = rev_graph[itr_u];
+        const auto amount_u = rev_graph[itr_u + 1];
         auto itr_v = rev_node_info[u].first;
         const auto itr_v_end = rev_node_info[u].last;
-        for (; itr_v < itr_v_end && rev_graph[itr_v].v > head; ++itr_v){
+        for (; itr_v < itr_v_end && rev_graph[itr_v] > head; itr_v += 2){
 
-            const auto v = rev_graph[itr_v].v;
-            const auto amount_v = rev_graph[itr_v].amount;
+            const auto v = rev_graph[itr_v];
+            const auto amount_v = rev_graph[itr_v + 1];
+            if (!amount_check(amount_v, amount_u)) continue;
 
-            if (amount_check(amount_v, amount_u)){
-                auto itr_mid = rev_node_info[v].first;
-                const auto itr_mid_end = rev_node_info[v].last;
-
-                for (; itr_mid < itr_mid_end && rev_graph[itr_mid].v >= head; ++itr_mid){
-                    const auto mid = rev_graph[itr_mid].v;
-                    const auto amount_mid = rev_graph[itr_mid].amount;
-                    if (amount_check(amount_mid, amount_v) && mid != u){
-                        if (head == mid && !amount_check(amount_u, amount_mid)) continue;
-                        if (!jump_update_flag[mid]){
-                            jump_update_flag[mid] = true;
-                            jump[mid].clear();
+            auto itr_mid = rev_node_info[v].first;
+            const auto itr_mid_end = rev_node_info[v].last;
+            for (; itr_mid < itr_mid_end && rev_graph[itr_mid] >= head; itr_mid += 2){
+                const auto mid = rev_graph[itr_mid];
+                const auto amount_mid = rev_graph[itr_mid + 1];
+                if (amount_check(amount_mid, amount_v) == false) continue;
+                if (mid != u){
+                    if (head == mid && !amount_check(amount_u, amount_mid)) continue;
+                    if (jump_status[mid] == 0){
+                            jump_status[mid] = idx2status(jump_num);
                             init_node.emplace_back(mid);
                             jump_num += 1;
+                            #ifdef TEST
+                                if (jump_num == JUMP_TABLE_SIZE) {
+                                    cout << "jump table full [1]" << endl;
+                                    exit(-1);
+                                }
+                            #endif
                         }
-                        jump[mid].emplace_back((BackwardPath){v, u, amount_mid, amount_u});
-                    }
+                        jump_table[status2idx(jump_status[mid])][status2len(jump_status[mid])] = (BackwardPath){v, u, amount_mid, amount_u};
+                        jump_status[mid]++;
+                        #ifdef TEST
+                            if (status2len(jump_status[mid]) == JUMP_PATH_PER_NODE) {
+                                cout << "jump table full [2]" << endl;
+                                exit(-2);
+                            }
+                        #endif
                 }
-                //TODO, maybe in here can get path3 directly
             }
 
         }
 
     }
     for (const auto & mid : init_node){
-        if (jump[mid].size() > 1) {sort(jump[mid].begin(), jump[mid].end());}
+        const int s = jump_status[mid];
+        if (status2len(s) > 1) {sort(jump_table[status2idx(s)], jump_table[status2idx(s)] + status2len(s));}
     }
     return jump_num;
 }
@@ -924,7 +928,8 @@ void run_job(int_std thread_id, int_std graph_size){
     memcpy(thread_node_info, global_node_info, graph_size * sizeof(NodeInfo));
     memcpy(second_graph_second_info[thread_id], global_second_graph_second_info, tD_size * sizeof(NodeInfo));
     vector<bool> jump_update_flag(graph_size, false);
-    vector<vector<BackwardPath>> jump_pool(graph_size);
+    auto jump_table = global_jump_table[thread_id];
+    auto jump_status = global_jump_status[thread_id];
 
     auto & used = used_pool[thread_id];
     for(;;){
@@ -933,12 +938,12 @@ void run_job(int_std thread_id, int_std graph_size){
         if (aidx_begin >= graph_size) {return;}
         if (aidx_end > graph_size) aidx_end = graph_size;
         for (int i = aidx_begin; i < aidx_end; ++i) {
-            const int jump_num = init_jump(i, jump_pool, jump_update_flag, init_node);
+            const int jump_num = init_jump(i, jump_table, jump_status, init_node);
             handle_thread_id[i] = thread_id;
             if (jump_num > 0){
-                search(i, jump_pool, jump_update_flag, used, thread_id, thread_node_info, second_graph_second_info[thread_id]);
+                search(i, jump_table, jump_status, used, thread_id, thread_node_info, second_graph_second_info[thread_id]);
                 for (const auto & mid : init_node){
-                    jump_update_flag[mid] = false;
+                    jump_status[mid] = 0;
                 }
             }
         }
@@ -1115,7 +1120,7 @@ void memory_report(){
     cout << "Second Graph Info is: " << (sizeof(second_graph_info) >> 20) << "MB" << endl;
     cout << "Second Graph Second Info is: " << (sizeof(global_second_graph_second_info) >> 20) << "MB" << endl;
     cout << "Second Graph is: " << (sizeof(second_graph) >> 20) << "MB" << endl;
-
+    cout << "Jump Table is: " << (sizeof(global_jump_table) >> 20) << "MB" << endl;
 
     cout << "==============================================================" << endl;
 }
@@ -1169,6 +1174,7 @@ int main(){
         cout << "Total running time : " << elapsed_seconds.count() << "s\n";
     }
     #endif
+
     return 0;
 }
 

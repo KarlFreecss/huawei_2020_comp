@@ -1,5 +1,5 @@
 /*
-TODO:
+Tb_c;//ODO:
     0. still need know the cost of (input, preprocess, search, output) of online data;
     1. re-id (maybe need test : tarjan and re-id)
     2. more good align of graph data;
@@ -104,8 +104,8 @@ const int THREAD_NUM            = 4;
 const int WRITER_THREAD_NUM     = 4;
 const int MAX_ID_STRING_LENGTH  = 12; //log(2 ** 32) + 1
 const int ID_HASH_TABLE_SIZE    = 12345701; // MAX_ID_NUM * 2 * 7, bigger is better;
-
-
+const int JUMP_TABLE_SIZE       = 16384;
+const int JUMP_PATH_PER_NODE    = 1024;
 const int second_coef           = 128;
 
 struct EdgeData{
@@ -150,7 +150,7 @@ int partial_node_info_second_count[THREAD_NUM];
 //int_std real_ans6[THREAD_NUM][MAX_ANS_NUM * 6];
 //int_std real_ans7[THREAD_NUM][MAX_ANS_NUM * 7];
 
-const int MAX_ANS_BUFFER_SIZE = MAX_ANS_NUM * 0.7;
+const int MAX_ANS_BUFFER_SIZE = MAX_ANS_NUM * 0.5;
 int_std real_ans_buff[THREAD_NUM][MAX_ANS_BUFFER_SIZE * (3 + 4 + 5 + 6 + 7 + 8)];
 int_std * real_ans3[THREAD_NUM] = {real_ans_buff[0],
                                    real_ans_buff[1], 
@@ -317,7 +317,7 @@ Data partial_tD[THREAD_NUM][MAX_DATA_RECORD_SIZE];
 int partial_tD_size[THREAD_NUM];
 
 inline
-long long get_num(char buff[], int_std & used_len){
+int_std get_num(char buff[], int_std & used_len){
     while (buff[used_len] < '0') ++used_len;
     int_std ret = buff[used_len++] - '0';
     while (buff[used_len] >= '0') {
@@ -363,11 +363,10 @@ void handle_input_data(char * addr_begin, char * addr_end, int thread_id){
     while (data_len - used_len > 3){
         const int a = get_num(in_buff, used_len);
         const int b = get_num(in_buff, used_len);
-        const long long b_c = get_num(in_buff, used_len);
-        long long s_c = 0;
+        const int b_c = get_num(in_buff, used_len);
+        int s_c = 0;
         if (in_buff[used_len] == '.') s_c = get_num(in_buff, used_len);
         const long long c = b_c * 100ll + s_c;
-        if (a == b) continue;
         PUSH_BACK(tD, tD_size, ((Data){a,b,c}));
         if (hash_insert(a, id_hash_table_flag, id_hash_table_key) >= 0) PUSH_BACK(ids, ids_size, a);
         if (hash_insert(b, id_hash_table_flag, id_hash_table_key) >= 0) PUSH_BACK(ids, ids_size, b);
@@ -712,23 +711,31 @@ struct BackwardPath{
 
 uint_byte used_pool[THREAD_NUM][MAX_ID_NUM];
 uint_byte handle_thread_id[MAX_ID_NUM];
+int global_jump_status[THREAD_NUM][MAX_ID_NUM];
+BackwardPath ALIGNED global_jump_table[THREAD_NUM][JUMP_TABLE_SIZE][JUMP_PATH_PER_NODE];
+
+#define idx2status(n) ((n) << 16)
+#define status2idx(n) ((n) >> 16)
+#define status2len(n) ((n) & 0xffff)
 
 //inline
 void quick_jump(int_std head, 
                 int_std mid,
-                vector<vector<BackwardPath>> & jump,
+                BackwardPath * jump,
+                int jump_length,
                 const int_std * node_list,
                 uint_byte used[],
                 int_std thread_id,
-                long long amount_mid,
+                long long mid_amount,
                 long long head_amount){
     const int idx = node_list[0] + 1;
     const auto & jp = jump[mid];
     auto & real_a = real_ans[thread_id][idx];
     auto & real_a_len = real_ans_size[thread_id][idx];
-    for (const auto & path : jp){
+    for (int j = 0; j < jump_length; j++){
+        const auto & path = jump[j];
         if (used[path.first] == false and used[path.second] == false \
-            and amount_check(amount_mid, path.first_amount)
+            and amount_check(mid_amount, path.first_amount)
             and amount_check(path.second_amount, head_amount)){
 
         	int length = 0;
@@ -753,13 +760,15 @@ void quick_jump(int_std head,
 }
 
 void head_quick_jump(int_std head, 
-                vector<vector<BackwardPath>> & jump,
+                BackwardPath * jump,
+                int jump_length,
                 int_std thread_id){
     const int idx = 0;
     const auto & jp = jump[head];
     auto & real_a = real_ans[thread_id][idx];
     auto & real_a_len = real_ans_size[thread_id][idx];
-    for (const auto & path : jp){
+    for (int j = 0; j < jump_length; j++){
+        const auto & path = jump[j];
         int length = 0;
         ++ans_pool[0][head].ans_num;
         real_a[real_a_len] = head;
@@ -785,90 +794,94 @@ void head_quick_jump(int_std head,
                 const auto x = graph[itr_##x].v;\
                 const auto amount_##x = graph[itr_##x].amount;
 
-#define TRY_QUICK_JUMP(head, v, amount_head) if(jump_update_flag[v])\
-                                                            quick_jump(head, v, jump, node_list, used, thread_id, amount_##v, amount_head)
+#define TRY_QUICK_JUMP(head, v, amount_head) if (unlikely(jump_status[v] > 0))\
+                quick_jump(head, v, jump_table[status2idx(jump_status[v])], status2len(jump_status[v]), \
+                    node_list, used, thread_id, amount_##v, amount_head)
 
 void search(int_std head,
-            vector<vector<BackwardPath>> & jump,
-            const vector<bool> & jump_update_flag,
+            BackwardPath (*jump_table)[JUMP_PATH_PER_NODE],
+            int * jump_status,
             uint_byte * used,
             int_std thread_id,
             NodeInfo * node_info,
             NodeInfo * second_graph_second_info){
-    if (jump_update_flag[head]) head_quick_jump(head, jump, thread_id);
+    if (jump_status[head] > 0) head_quick_jump(head, jump_table[status2idx(jump_status[head])], status2len(jump_status[head]), thread_id);
     int_std node_list[PATH_LENGTH_NUM];
     int_std & node_list_len = node_list[0];
     node_list_len = 0; 
-    EDGE_ITR_INIT(w, head);
-    for (;itr_w < itr_end_w; ++itr_w){
-        GET_NODE_INFO(w);
-        used[w] = 1;
-        TRY_QUICK_JUMP(head, w, amount_w);
-        node_list[++node_list_len] = w;
+    EDGE_ITR_INIT(u, head);
+    for (;itr_u < itr_end_u; ++itr_u){
+        GET_NODE_INFO(u); //u and amount
+        used[u] = 1;
+        TRY_QUICK_JUMP(head, u, amount_u);
+        node_list[++node_list_len] = u;
+        //EDGE_ITR_INIT(v, u);
+        const auto itr_v_idx = second_graph_info[head] + ((itr_u - global_node_info[head].first));
+        auto itr_v = second_graph_second_info[itr_v_idx].first;
+        const auto itr_end_v = second_graph_second_info[itr_v_idx].last;
+        for (; itr_v < itr_end_v; ++itr_v) {if (second_graph[itr_v].v > head) break;}
+        second_graph_second_info[itr_v_idx].first = itr_v;
+        for (; itr_v < itr_end_v; ++itr_v){
+            const auto v = second_graph[itr_v].v;
+            auto amount_v = second_graph[itr_v].amount;
+            //GET_NODE_INFO(v);
+            //if (!amount_check(amount_u, amount_v)) continue;
+            used[v] = 1;
+            TRY_QUICK_JUMP(head, v, amount_u);
+            node_list[++node_list_len] = v;
+            EDGE_ITR_INIT(k, v);
+            //const auto itr_k_idx = second_graph_info[u].first + ((itr_v - global_second_graph_second_info[itr_v_idx].first) >> 1);
+            //auto itr_k = second_graph_second_info[itr_k_idx].first;
+            //const auto itr_end_k = second_graph_second_info[itr_k_idx].last;
+            //for (; itr_k < itr_end_k; ++itr_k) {if (second_graph[itr_k] > head) break;}
+            //second_graph_second_info[itr_k_idx].first = itr_k;
+            for (;itr_k < itr_end_k; ++itr_k){
+                //const auto k = second_graph[itr_k];
+                //auto amount_k = second_graph[itr_k+1];
+                GET_NODE_INFO(k);
+                if (!amount_check(amount_v, amount_k)) continue;
+                if (k == u) continue;
+                used[k] = 1;
+                TRY_QUICK_JUMP(head, k, amount_u);
+                node_list[++node_list_len] = k;
 
-        EDGE_ITR_INIT(u, w);
-        for (;itr_u < itr_end_u; ++itr_u){
-            GET_NODE_INFO(u);
-
-            if (!amount_check(amount_w, amount_u)) continue;
-            used[u] = 1;
-            TRY_QUICK_JUMP(head, u, amount_w);
-            node_list[++node_list_len] = u;
-
-            const auto itr_v_idx = second_graph_info[w] + ((itr_u - global_node_info[w].first));
-            auto itr_v = second_graph_second_info[itr_v_idx].first;
-            const auto itr_end_v = second_graph_second_info[itr_v_idx].last;
-            for (; itr_v < itr_end_v; ++itr_v) {if (second_graph[itr_v].v > head) break;}
-            second_graph_second_info[itr_v_idx].first = itr_v;
-
-            for (; itr_v < itr_end_v; ++itr_v){
-                const auto v = second_graph[itr_v].v;
-                auto amount_v = second_graph[itr_v].amount;
-
-                if (used[v]) continue;
-                used[v] = 1;
-                TRY_QUICK_JUMP(head, v, amount_w);
-                node_list[++node_list_len] = v;
-                EDGE_ITR_INIT(k, v);
-                for (;itr_k < itr_end_k; ++itr_k){
-                    GET_NODE_INFO(k);
-                    if (!amount_check(amount_v, amount_k)) continue;
-                    if (used[k]) continue;
-                    used[k] = 1;
-                    TRY_QUICK_JUMP(head, k, amount_w);
-                    node_list[++node_list_len] = k;
-
-                    const auto itr_l_idx = second_graph_info[v] + ((itr_k - global_node_info[v].first));
-                    auto itr_l = second_graph_second_info[itr_l_idx].first;
-                    const auto itr_end_l = second_graph_second_info[itr_l_idx].last;
-                    for (; itr_l < itr_end_l; ++itr_l) {if (second_graph[itr_l].v > head) break;}
-                    second_graph_second_info[itr_l_idx].first = itr_l;
-
-	    			for (;itr_l < itr_end_l; ++itr_l){
-                        const auto l = second_graph[itr_l].v;
-                        auto amount_l = second_graph[itr_l].amount;
-	    				if (unlikely(jump_update_flag[l] > 0 and used[l] == false)) {
-	    					quick_jump(head, l, jump, \
-                                node_list, used, thread_id, amount_l, amount_w);
-	    				}
+                //const auto itr_l_idx = second_graph_info[v].first + ((itr_k - global_second_graph_second_info[itr_k_idx].first) >> 1);
+                const auto itr_l_idx = second_graph_info[v] + ((itr_k - global_node_info[v].first));
+                auto itr_l = second_graph_second_info[itr_l_idx].first;
+                const auto itr_end_l = second_graph_second_info[itr_l_idx].last;
+                for (; itr_l < itr_end_l; ++itr_l) {if (second_graph[itr_l].v > head) break;}
+                second_graph_second_info[itr_l_idx].first = itr_l;
+				for (;itr_l < itr_end_l; ++itr_l){
+                    const auto l = second_graph[itr_l].v;
+                    auto amount_l = second_graph[itr_l].amount;
+                    if (l == u or l == v) continue;
+                    TRY_QUICK_JUMP(head, l, amount_u);
+                    used[l] = 1;
+                    node_list[++node_list_len] = l;
+                    EDGE_ITR_INIT(w, l);
+                    for (;itr_w < itr_end_w; ++itr_w){
+                        GET_NODE_INFO(w);
+                        if (!amount_check(amount_l, amount_w)) continue;
+                        if (used[w]) continue;
+                        TRY_QUICK_JUMP(head, w, amount_u);
                     }
-                    used[k] = 0;
+                    used[l] = 0;
                     node_list_len = 3;
                 }
-                used[v] = 0;
+                used[k] = 0;
                 node_list_len = 2;
             }
-            used[u] = 0;
+            used[v] = 0;
             node_list_len = 1;
         }
-        used[w] = 0;
+        used[u] = 0;
         node_list_len = 0;
     }
 }
 
 int init_jump(int_std head, 
-            vector<vector<BackwardPath>> & jump, 
-            vector<bool> & jump_update_flag, 
+            BackwardPath (*jump_table)[JUMP_PATH_PER_NODE],
+            int * jump_status,
             vector<int_std> & init_node){
     int jump_num = 0;
     init_node.clear();
@@ -884,33 +897,44 @@ int init_jump(int_std head,
 
             const auto v = rev_graph[itr_v].v;
             const auto amount_v = rev_graph[itr_v].amount;
+            if (!amount_check(amount_v, amount_u)) continue;
 
-            if (amount_check(amount_v, amount_u)){
-                auto itr_mid = rev_node_info[v].first;
-                const auto itr_mid_end = rev_node_info[v].last;
-
-                for (; itr_mid < itr_mid_end && rev_graph[itr_mid].v >= head; ++itr_mid){
-                    const auto mid = rev_graph[itr_mid].v;
-                    const auto amount_mid = rev_graph[itr_mid].amount;
-                    if (amount_check(amount_mid, amount_v) && mid != u){
-                        if (head == mid && !amount_check(amount_u, amount_mid)) continue;
-                        if (!jump_update_flag[mid]){
-                            jump_update_flag[mid] = true;
-                            jump[mid].clear();
+            auto itr_mid = rev_node_info[v].first;
+            const auto itr_mid_end = rev_node_info[v].last;
+            for (; itr_mid < itr_mid_end && rev_graph[itr_mid].v >= head; ++itr_mid){
+                const auto mid = rev_graph[itr_mid].v;
+                const auto amount_mid = rev_graph[itr_mid].amount;
+                if (amount_check(amount_mid, amount_v) == false) continue;
+                if (mid != u){
+                    if (head == mid && !amount_check(amount_u, amount_mid)) continue;
+                    if (jump_status[mid] == 0){
+                            jump_status[mid] = idx2status(jump_num);
                             init_node.emplace_back(mid);
                             jump_num += 1;
+                            #ifdef TEST
+                                if (jump_num == JUMP_TABLE_SIZE) {
+                                    cout << "jump table full [1]" << endl;
+                                    exit(-1);
+                                }
+                            #endif
                         }
-                        jump[mid].emplace_back((BackwardPath){v, u, amount_mid, amount_u});
-                    }
+                        jump_table[status2idx(jump_status[mid])][status2len(jump_status[mid])] = (BackwardPath){v, u, amount_mid, amount_u};
+                        jump_status[mid]++;
+                        #ifdef TEST
+                            if (status2len(jump_status[mid]) == JUMP_PATH_PER_NODE) {
+                                cout << "jump table full [2]" << endl;
+                                exit(-2);
+                            }
+                        #endif
                 }
-                //TODO, maybe in here can get path3 directly
             }
 
         }
 
     }
     for (const auto & mid : init_node){
-        if (jump[mid].size() > 1) {sort(jump[mid].begin(), jump[mid].end());}
+        const int s = jump_status[mid];
+        if (status2len(s) > 1) {sort(jump_table[status2idx(s)], jump_table[status2idx(s)] + status2len(s));}
     }
     return jump_num;
 }
@@ -924,7 +948,8 @@ void run_job(int_std thread_id, int_std graph_size){
     memcpy(thread_node_info, global_node_info, graph_size * sizeof(NodeInfo));
     memcpy(second_graph_second_info[thread_id], global_second_graph_second_info, tD_size * sizeof(NodeInfo));
     vector<bool> jump_update_flag(graph_size, false);
-    vector<vector<BackwardPath>> jump_pool(graph_size);
+    auto jump_table = global_jump_table[thread_id];
+    auto jump_status = global_jump_status[thread_id];
 
     auto & used = used_pool[thread_id];
     for(;;){
@@ -933,12 +958,12 @@ void run_job(int_std thread_id, int_std graph_size){
         if (aidx_begin >= graph_size) {return;}
         if (aidx_end > graph_size) aidx_end = graph_size;
         for (int i = aidx_begin; i < aidx_end; ++i) {
-            const int jump_num = init_jump(i, jump_pool, jump_update_flag, init_node);
+            const int jump_num = init_jump(i, jump_table, jump_status, init_node);
             handle_thread_id[i] = thread_id;
             if (jump_num > 0){
-                search(i, jump_pool, jump_update_flag, used, thread_id, thread_node_info, second_graph_second_info[thread_id]);
+                search(i, jump_table, jump_status, used, thread_id, thread_node_info, second_graph_second_info[thread_id]);
                 for (const auto & mid : init_node){
-                    jump_update_flag[mid] = false;
+                    jump_status[mid] = 0;
                 }
             }
         }
@@ -1169,6 +1194,7 @@ int main(){
         cout << "Total running time : " << elapsed_seconds.count() << "s\n";
     }
     #endif
+
     return 0;
 }
 
